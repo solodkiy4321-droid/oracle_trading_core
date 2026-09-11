@@ -1,16 +1,18 @@
 """Профили адаптивных параметров для инструментов.
 
-Данные 7 инструментов × 10000 баров:
+Данные 9 инструментов × 10000 баров (227 сделок):
 - ADA: +7.21% (Default) ⭐
+- DOT: +6.55% (Default) ⭐
+- BTC: +6.52% (кастомный ATR 2.5) ⭐
 - AVAX: +6.45% (Default) ⭐
-- BTC: +6.52% (кастомный ATR 2.5)
+- ATOM: +6.01% (Default) ⭐
 - ETH: +5.25% (кастомный ATR 1.5)
 - AAPL: +2.32% (кастомный ATR 2.0)
-- SOL: −0.82% (Default) → НУЖЕН СВОЙ ПРОФИЛЬ
-- MATIC: делистинг
+- NEAR: −2.06% (Default) → ИСКЛЮЧИТЬ
+- SOL: −2.60% (кастомный ATR 2.0) → ИСКЛЮЧИТЬ
 
-ВЫВОД: Default profile работает для большинства инструментов.
-Кастомный нужен только для BTC, ETH, AAPL, SOL.
+ВЫВОД: Default profile отлично работает для большинства альткоинов
+(ADA, AVAX, DOT, ATOM). Кастомный нужен только для BTC, ETH, AAPL.
 """
 
 import logging
@@ -91,15 +93,18 @@ class SymbolProfileRegistry:
 
 def create_default_registry() -> SymbolProfileRegistry:
     """
-    Реестр с профилями под данные 7 инструментов.
+    Реестр с профилями под данные 9 инструментов.
 
-    Оставляем кастомные только для инструментов, где есть проблема:
-    - BTC: кастомный ATR 2.5 (работает +6.52%)
-    - ETH: кастомный ATR 1.5 (работает +5.25%)
-    - SOL: НОВЫЙ кастомный ATR 2.0 (было −0.82%)
-    - AAPL: кастомный ATR 2.0 (работает +2.32%)
+    Кастомные только для проверенных инструментов:
+    - BTC: ATR 2.5 (+6.52%)
+    - ETH: ATR 1.5 (+5.25%)
+    - AAPL: ATR 2.0 (+2.32%)
 
-    Остальные (ADA, AVAX) — Default (работают отлично).
+    Остальные — Default:
+    - ADA: +7.21%
+    - DOT: +6.55%
+    - AVAX: +6.45%
+    - ATOM: +6.01%
     """
     registry = SymbolProfileRegistry()
 
@@ -129,19 +134,6 @@ def create_default_registry() -> SymbolProfileRegistry:
         ),
     )
 
-    # SOL-USD — НОВЫЙ профиль (было −0.82% с Default)
-    registry.register(
-        "SOL-USD",
-        SymbolProfile(
-            risk_per_trade_pct=0.007,       # ниже — волатильный
-            max_position_pct=0.5,           # ограничение
-            atr_multiplier=2.0,             # шире SL
-            atr_period=14,
-            default_rr_ratio=2.0,
-            notes="SOL: тест ATR 2.0 (было −0.82%)",
-        ),
-    )
-
     # AAPL — проверено
     registry.register(
         "AAPL",
@@ -155,6 +147,8 @@ def create_default_registry() -> SymbolProfileRegistry:
         ),
     )
 
-    # ADA, AVAX — Default (работают отлично)
+    # SOL — ИСКЛЮЧЁН (не работает ни с Default, ни с ATR 2.0)
+    # NEAR — ИСКЛЮЧЁН (не работает с Default)
+    # ADA, AVAX, DOT, ATOM — Default (работают отлично)
 
     return registry

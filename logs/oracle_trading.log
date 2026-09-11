@@ -14252,3 +14252,4 @@
 2026-09-11 19:15:42 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 04:15:42.362291+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
 2026-09-11 19:16:22 [ERROR] yfinance: $MATIC-USD: possibly delisted; no price data found  (period=730d)
 2026-09-11 19:25:50 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 04:25:50.445550+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-11 19:47:48 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)

@@ -1,4 +1,4 @@
-"""Точка входа: расширенный бэктест, 9 инструментов."""
+"""Точка входа: расширенный бэктест, 8 инструментов (только прибыльные)."""
 
 import asyncio
 import math
@@ -145,16 +145,15 @@ async def run_backtest(symbol, timeframe="1h", bars_to_process=10000,
 
 
 async def main():
-    """Бэктест на 9 инструментах × 10000 баров."""
+    """Бэктест на 8 инструментах × 10000 баров."""
     symbols = [
         ("BTC-USD", "1h"),
         ("ETH-USD", "1h"),
-        ("SOL-USD", "1h"),
         ("ADA-USD", "1h"),
         ("AVAX-USD", "1h"),
         ("DOT-USD", "1h"),
         ("ATOM-USD", "1h"),
-        ("NEAR-USD", "1h"),
+        ("UNI-USD", "1h"),
         ("AAPL", "1d"),
     ]
 
