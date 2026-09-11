@@ -1,9 +1,7 @@
-"""Точка входа: расширенный бэктест с профилями инструментов."""
+"""Точка входа: расширенный бэктест, 9 инструментов."""
 
 import asyncio
-import csv
 import math
-from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -26,20 +24,6 @@ def calculate_sharpe(returns: list, risk_free: float = 0.0) -> float:
     return (mean - risk_free) / std * math.sqrt(252)
 
 
-def calculate_sortino(returns: list, risk_free: float = 0.0) -> float:
-    if len(returns) < 2:
-        return 0.0
-    mean = sum(returns) / len(returns)
-    downside = [r for r in returns if r < 0]
-    if len(downside) < 2:
-        return 0.0
-    downside_var = sum(r ** 2 for r in downside) / len(downside)
-    downside_std = math.sqrt(downside_var) if downside_var > 0 else 0.0
-    if downside_std == 0:
-        return 0.0
-    return (mean - risk_free) / downside_std * math.sqrt(252)
-
-
 def calculate_max_drawdown(equity_curve: list) -> tuple:
     if len(equity_curve) < 2:
         return 0.0, 0.0
@@ -57,14 +41,9 @@ def calculate_max_drawdown(equity_curve: list) -> tuple:
     return max_dd_pct, max_dd_dollar
 
 
-async def run_backtest(
-    symbol: str,
-    timeframe: str = "1h",
-    bars_to_process: int = 5000,
-    export_dir: str = "backtest_results",
-    starting_equity: float = 10000.0,
-):
-    print("\n" + "=" * 70)
+async def run_backtest(symbol, timeframe="1h", bars_to_process=10000,
+                       export_dir="backtest_results", starting_equity=10000.0):
+    print(f"\n{'=' * 70}")
     print(f"БЭКТЕСТИНГ: {symbol} {timeframe} | {bars_to_process} баров")
     print("=" * 70)
 
@@ -82,7 +61,6 @@ async def run_backtest(
 
     print(f"Загружено {len(data)} баров")
     if len(data) < 500:
-        print(f"⚠️  Недостаточно данных: {len(data)}")
         return None
     if len(data) < bars_to_process:
         bars_to_process = len(data)
@@ -93,32 +71,16 @@ async def run_backtest(
         timeframe=timeframe,
         journal_db_path=f"{export_dir}/{prefix}_journal.db",
         gate_mode="balanced",
-        snapshot_every_n_bars=24,
+        snapshot_every_n_bars=999999,
     )
 
     engine = TradingEngine(config)
-
-    # Выводим профиль
     profile = engine.profile
-    print(f"\nПрофиль {symbol}:")
-    print(f"  Risk per trade:  {profile.risk_per_trade_pct * 100:.2f}%")
-    print(f"  ATR multiplier:  {profile.atr_multiplier:.2f}")
-    print(f"  ATR period:      {profile.atr_period}")
-    print(f"  R:R ratio:       1:{profile.default_rr_ratio:.1f}")
-    print(f"  Max position:    {profile.max_position_pct * 100:.0f}%")
-    print(f"  Notes:           {profile.notes}")
+    print(f"Профиль: risk={profile.risk_per_trade_pct*100:.2f}%, "
+          f"atr={profile.atr_multiplier:.2f}, notes={profile.notes}")
 
     start_idx = max(250, len(data) - bars_to_process)
-    total_bars = len(data) - start_idx
-
     processed = 0
-    opened_count = 0
-    closed_count = 0
-    regime_counter = Counter()
-    close_reason_counter = Counter()
-    scores_above_065 = 0
-    scores_above_060 = 0
-    scores_above_050 = 0
     equity_curve = []
 
     for i in range(start_idx, len(data)):
@@ -132,32 +94,13 @@ async def run_backtest(
             data=slice_data, bar_index=i, bar_time=bar_time,
         )
         processed += 1
-        if result.opened_position is not None:
-            opened_count += 1
-        for closed_pos in result.closed_positions:
-            closed_count += 1
-            if closed_pos.close_reason is not None:
-                close_reason_counter[closed_pos.close_reason.value] += 1
-        if result.decision is not None:
-            regime_counter[result.decision.regime.value] += 1
-            score = result.decision.confluence_score
-            if score >= 0.65:
-                scores_above_065 += 1
-            elif score >= 0.60:
-                scores_above_060 += 1
-            if score >= 0.50:
-                scores_above_050 += 1
 
         snapshot = engine.portfolio.get_snapshot()
         equity_curve.append(snapshot["current_equity"])
 
-        if processed % 500 == 0:
-            snapshot = engine.portfolio.get_snapshot()
-            print(
-                f"  [{processed}/{total_bars}] "
-                f"equity=${snapshot['current_equity']:.2f}, "
-                f"сделок={snapshot['total_trades']}"
-            )
+        if processed % 2000 == 0:
+            print(f"  [{processed}] equity=${snapshot['current_equity']:.2f}, "
+                  f"сделок={snapshot['total_trades']}")
 
     stats = engine.get_stats()
     portfolio = stats["portfolio"]
@@ -170,8 +113,8 @@ async def run_backtest(
                 (equity_curve[i] - equity_curve[i - 1]) / equity_curve[i - 1]
             )
     sharpe = calculate_sharpe(returns)
-    sortino = calculate_sortino(returns)
-    max_dd_pct, max_dd_dollar = calculate_max_drawdown(equity_curve)
+    max_dd_pct, _ = calculate_max_drawdown(equity_curve)
+
     expectancy = 0.0
     if trades["total"] > 0:
         expectancy = (
@@ -179,64 +122,15 @@ async def run_backtest(
             - (1 - trades["win_rate"]) * trades["avg_loss"]
         )
 
-    print("\n" + "=" * 70)
-    print(f"РЕЗУЛЬТАТЫ: {symbol}")
-    print("=" * 70)
-    print(f"Обработано баров:        {processed}")
-    print(f"Открыто/Закрыто:         {opened_count} / {closed_count}")
-    print()
-    print(f"Начальный equity:        ${portfolio['starting_equity']:.2f}")
-    print(f"Текущий equity:          ${portfolio['current_equity']:.2f}")
-    print(f"Общий P&L:               ${portfolio['total_pnl']:.2f} "
-          f"({portfolio['total_pnl_pct'] * 100:.2f}%)")
-    print()
-    print(f"Всего сделок:            {trades['total']}")
-    print(f"Побед / Убытков:         {trades['wins']} / {trades['losses']}")
-    print(f"Win rate:                {trades['win_rate'] * 100:.1f}%")
-    print(f"Profit factor:           {trades['profit_factor']:.2f}")
-    print(f"Средняя прибыль:         ${trades['avg_win']:.2f}")
-    print(f"Средний убыток:          ${trades['avg_loss']:.2f}")
-    print(f"Expectancy:              ${expectancy:.2f}")
-    print()
-    print(f"Sharpe Ratio:            {sharpe:.2f}")
-    print(f"Sortino Ratio:           {sortino:.2f}")
-    print(f"Max Drawdown:            {max_dd_pct * 100:.2f}% (${max_dd_dollar:.2f})")
-    print()
-    print(f"Сигналов >= 0.65:        {scores_above_065}")
-    print(f"Сигналов >= 0.60:        {scores_above_060}")
-    print(f"Сигналов >= 0.50:        {scores_above_050}")
-    print()
-    print("Причины закрытия:")
-    for reason, count in close_reason_counter.most_common():
-        print(f"  {reason:15s}: {count}")
-    print()
-    print("Режимы:")
-    for regime, count in regime_counter.most_common():
-        pct = count / processed * 100 if processed > 0 else 0
-        print(f"  {regime:10s}: {count:5d} ({pct:5.1f}%)")
-
-    equity_file = export_path / f"{prefix}_equity.csv"
-    with open(equity_file, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(["bar", "equity"])
-        for i, eq in enumerate(equity_curve):
-            writer.writerow([i, eq])
-
-    trades_file = export_path / f"{prefix}_trades.csv"
-    all_trades = engine.analytics.get_all_trades()
-    if all_trades:
-        with open(trades_file, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=all_trades[0].keys())
-            writer.writeheader()
-            writer.writerows(all_trades)
+    print(f"  Результат: {trades['total']} сделок, "
+          f"WR {trades['win_rate']*100:.1f}%, "
+          f"PnL ${portfolio['total_pnl']:+.2f}")
 
     engine.close()
 
     return {
         "symbol": symbol,
         "bars": processed,
-        "opened": opened_count,
-        "closed": closed_count,
         "trades": trades["total"],
         "wins": trades["wins"],
         "losses": trades["losses"],
@@ -245,46 +139,36 @@ async def run_backtest(
         "total_pnl": portfolio["total_pnl"],
         "total_pnl_pct": portfolio["total_pnl_pct"],
         "sharpe": sharpe,
-        "sortino": sortino,
         "max_dd_pct": max_dd_pct,
         "expectancy": expectancy,
-        "avg_win": trades["avg_win"],
-        "avg_loss": trades["avg_loss"],
-        "signals_above_065": scores_above_065,
-        "signals_above_060": scores_above_060,
-        "signals_above_050": scores_above_050,
-        "close_reasons": dict(close_reason_counter),
-        "regimes": dict(regime_counter),
-        "profile": {
-            "risk_per_trade_pct": profile.risk_per_trade_pct,
-            "atr_multiplier": profile.atr_multiplier,
-            "default_rr_ratio": profile.default_rr_ratio,
-            "max_position_pct": profile.max_position_pct,
-            "notes": profile.notes,
-        },
     }
 
 
 async def main():
+    """Бэктест на 9 инструментах × 10000 баров."""
     symbols = [
         ("BTC-USD", "1h"),
         ("ETH-USD", "1h"),
+        ("SOL-USD", "1h"),
+        ("ADA-USD", "1h"),
+        ("AVAX-USD", "1h"),
+        ("DOT-USD", "1h"),
+        ("ATOM-USD", "1h"),
+        ("NEAR-USD", "1h"),
         ("AAPL", "1d"),
     ]
 
-    bars_per_symbol = 5000
+    bars_per_symbol = 10000
     starting_equity = 10000.0
 
     print("\n" + "=" * 70)
-    print("РАСШИРЕННЫЙ БЭКТЕСТ: 3 инструмента x 5000 баров")
-    print("(с адаптивными профилями)")
+    print(f"РАСШИРЕННЫЙ БЭКТЕСТ: {len(symbols)} инструментов × {bars_per_symbol} баров")
     print("=" * 70)
 
     all_results = []
     for symbol, timeframe in symbols:
         result = await run_backtest(
-            symbol=symbol,
-            timeframe=timeframe,
+            symbol=symbol, timeframe=timeframe,
             bars_to_process=bars_per_symbol,
             export_dir="backtest_results",
             starting_equity=starting_equity,
@@ -292,12 +176,12 @@ async def main():
         if result is not None:
             all_results.append(result)
 
-    print("\n" + "=" * 70)
+    print("\n\n" + "=" * 100)
     print("СВОДНАЯ ТАБЛИЦА")
-    print("=" * 70)
+    print("=" * 100)
     header = (
         f"{'Symbol':<12} {'Trades':>7} {'Win%':>6} {'PF':>6} "
-        f"{'Sharpe':>7} {'Sortino':>8} {'MaxDD%':>7} {'PnL%':>7} {'Exp$':>8}"
+        f"{'Sharpe':>7} {'MaxDD%':>7} {'PnL%':>7} {'Exp$':>8}"
     )
     print(header)
     print("-" * len(header))
@@ -309,23 +193,10 @@ async def main():
             f"{r['win_rate'] * 100:>6.1f} "
             f"{r['profit_factor']:>6.2f} "
             f"{r['sharpe']:>7.2f} "
-            f"{r['sortino']:>8.2f} "
             f"{r['max_dd_pct'] * 100:>7.2f} "
             f"{r['total_pnl_pct'] * 100:>7.2f} "
             f"{r['expectancy']:>8.2f}"
         )
-
-    print("\n" + "=" * 70)
-    print("ПРИМЕНЁННЫЕ ПРОФИЛИ")
-    print("=" * 70)
-    for r in all_results:
-        p = r["profile"]
-        print(f"\n{r['symbol']}:")
-        print(f"  Risk:        {p['risk_per_trade_pct'] * 100:.2f}%")
-        print(f"  ATR mult:    {p['atr_multiplier']:.2f}")
-        print(f"  R:R ratio:   1:{p['default_rr_ratio']:.1f}")
-        print(f"  Max pos:     {p['max_position_pct'] * 100:.0f}%")
-        print(f"  Notes:       {p['notes']}")
 
     if all_results:
         total_trades = sum(r["trades"] for r in all_results)
@@ -339,11 +210,7 @@ async def main():
         print(f"  Побед/Убытков:  {total_wins} / {total_losses}")
         if total_trades > 0:
             print(f"  Общий win rate: {total_wins / total_trades * 100:.1f}%")
-        print(f"  Общий P&L:      ${total_pnl:.2f}")
-
-    print("\n" + "=" * 70)
-    print("Данные сохранены в backtest_results/")
-    print("=" * 70)
+        print(f"  Общий P&L:      ${total_pnl:+.2f}")
 
 
 if __name__ == "__main__":

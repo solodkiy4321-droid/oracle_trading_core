@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class BarResult:
-    """Результат обработки одного бара."""
     bar_index: int = 0
     bar_time: Optional[datetime] = None
     bar_close: float = 0.0
@@ -45,43 +44,24 @@ class BarResult:
 
 
 class TradingEngine:
-    """
-    Trading Engine с поддержкой адаптивных параметров.
-
-    Профиль инструмента применяется автоматически:
-    - Risk per trade
-    - ATR multiplier
-    - ATR period
-    - R:R ratio
-    - Gate mode (через gate_mode_override)
-    - Веса анализаторов (через weights_override)
-    """
-
     def __init__(self, config: Optional[EngineConfig] = None):
         self.config = config or EngineConfig()
         self.config.validate()
 
-        # Получаем профиль для символа
         self.profile: SymbolProfile = self.config.get_symbol_profile()
 
         logger.info(
-            "TradingEngine инициализирован: %s %s, equity=%.2f",
+            "TradingEngine: %s %s, equity=%.2f",
             self.config.symbol, self.config.timeframe,
             self.config.starting_equity,
         )
         logger.info(
-            "Профиль: risk=%.2f%%, atr_mult=%.2f, atr_period=%d, rr=%.1f, "
-            "gate=%s, weights=%s — %s",
+            "Профиль: risk=%.2f%%, atr=%.2f, disabled_patterns=%s",
             self.profile.risk_per_trade_pct * 100,
             self.profile.atr_multiplier,
-            self.profile.atr_period,
-            self.profile.default_rr_ratio,
-            self.profile.gate_mode_override or "default",
-            self.profile.weights_override or "default",
-            self.profile.notes,
+            self.profile.harmonic_disabled_patterns,
         )
 
-        # Инициализация компонентов с учётом профиля
         self._init_journal()
         self._init_portfolio()
         self._init_position_manager()
@@ -90,8 +70,6 @@ class TradingEngine:
         self._init_confluence()
 
         self._bar_counter = 0
-
-    # ============ Инициализация ============
 
     def _init_journal(self) -> None:
         self.journal = Journal(self.config.journal_db_path)
@@ -123,7 +101,6 @@ class TradingEngine:
         )
 
     def _init_risk_manager(self) -> None:
-        """Risk Manager с параметрами из профиля."""
         self.risk_manager = RiskManager(
             risk_per_trade_pct=self.profile.risk_per_trade_pct,
             atr_period=self.profile.atr_period,
@@ -133,12 +110,17 @@ class TradingEngine:
         )
 
     def _init_intake(self) -> None:
+        """Инициализация Signal Intake с параметрами из профиля."""
         self.intake = SignalIntake(timeout=5.0)
 
         if self.config.enable_indicators:
             self.intake.register(IndicatorsAnalyzer(name="indicators"))
         if self.config.enable_harmonic:
-            self.intake.register(HarmonicAnalyzer(name="harmonic"))
+            # NEW: передаём disabled_patterns в HarmonicAnalyzer
+            self.intake.register(HarmonicAnalyzer(
+                name="harmonic",
+                disabled_patterns=self.profile.harmonic_disabled_patterns,
+            ))
         if self.config.enable_support_resistance:
             self.intake.register(SRAnalyzer(name="support_resistance"))
 
@@ -148,46 +130,27 @@ class TradingEngine:
         )
 
     def _init_confluence(self) -> None:
-        """Confluence с учётом профиля: gate_mode и weights."""
         gate_mode_map = {
             "aggressive": GateMode.AGGRESSIVE,
             "balanced": GateMode.BALANCED,
             "conservative": GateMode.CONSERVATIVE,
         }
-
-        # Приоритет: gate_mode_override из профиля > config.gate_mode
         gate_mode_str = self.profile.gate_mode_override or self.config.gate_mode
         gate_mode = gate_mode_map.get(gate_mode_str, GateMode.BALANCED)
 
         self.confluence = ConfluenceEngine()
 
-        # Применяем weights_override из профиля (если есть)
         if self.profile.weights_override is not None:
             self.confluence.set_base_weights(self.profile.weights_override)
-            logger.info(
-                "Применены weights_override из профиля: %s",
-                self.profile.weights_override,
-            )
+            logger.info("weights_override: %s", self.profile.weights_override)
 
         self.confluence.set_gate_mode(gate_mode)
-        logger.info(
-            "Gate mode: %s (порог %.2f)",
-            gate_mode.value, self.confluence._gate.get_threshold(),
-        )
 
-    # ============ Главный цикл ============
-
-    async def on_bar(
-        self,
-        data: pd.DataFrame,
-        bar_index: int,
-        bar_time: Optional[datetime] = None,
-    ) -> BarResult:
+    async def on_bar(self, data, bar_index, bar_time=None):
         self._bar_counter += 1
         result = BarResult(bar_index=bar_index, bar_time=bar_time)
 
         if len(data) < 50:
-            logger.debug("Недостаточно данных: %d баров", len(data))
             return result
 
         current_bar = data.iloc[-1]
@@ -196,24 +159,19 @@ class TradingEngine:
         bar_close = float(current_bar["close"])
         result.bar_close = bar_close
 
-        # 1. Обработка открытых позиций
         atr = self._calculate_atr(data)
         position_update = self.position_manager.on_bar(
-            bar_high=bar_high,
-            bar_low=bar_low,
-            bar_close=bar_close,
+            bar_high=bar_high, bar_low=bar_low, bar_close=bar_close,
             bar_time=bar_time or datetime.now(timezone.utc),
             atr=atr,
         )
         result.events = position_update.events
 
-        # 2. Регистрация закрытых позиций
         for closed_pos in position_update.closed_positions:
             self._on_position_closed(closed_pos)
             result.closed_positions.append(closed_pos)
             result.realized_pnl += closed_pos.realized_pnl
 
-        # 3. Portfolio Guard
         guard_result = self.portfolio.can_open(
             symbol=self.config.symbol,
             risk_pct=self.profile.risk_per_trade_pct,
@@ -221,59 +179,41 @@ class TradingEngine:
         if not guard_result.allowed:
             result.was_blocked_by_guard = True
             result.guard_reason = guard_result.reason
-            logger.debug("Portfolio Guard заблокировал: %s", guard_result.reason)
             return result
 
-        # 4. Сбор сигналов
         batch = await self.intake.process(
             data, symbol=self.config.symbol, timeframe=self.config.timeframe,
         )
-
-        # 5. Confluence
         decision = self.confluence.decide(batch.signals, data)
         result.decision = decision
 
-        # 6. Логирование
         self.journal.log_decision(
-            decision=decision,
-            symbol=self.config.symbol,
-            timeframe=self.config.timeframe,
-            signals_count=batch.count,
+            decision=decision, symbol=self.config.symbol,
+            timeframe=self.config.timeframe, signals_count=batch.count,
         )
 
-        # 7. Открытие позиции
         if decision.passed and decision.direction != SignalDirection.HOLD:
             opened = self._try_open_position(
-                decision=decision,
-                data=data,
+                decision=decision, data=data,
                 current_price=bar_close,
                 bar_time=bar_time or datetime.now(timezone.utc),
             )
             if opened is not None:
                 result.opened_position = opened
 
-        # 8. Снимок портфеля
         if self._bar_counter % self.config.snapshot_every_n_bars == 0:
             self.journal.log_portfolio_snapshot(self.portfolio.state)
 
         return result
 
-    def _try_open_position(
-        self,
-        decision: ConfluenceDecision,
-        data: pd.DataFrame,
-        current_price: float,
-        bar_time: datetime,
-    ) -> Optional[Position]:
+    def _try_open_position(self, decision, data, current_price, bar_time):
         plan = self.risk_manager.calculate_plan(
             direction=decision.direction,
             entry_price=current_price,
             equity=self.portfolio.state.current_equity,
             data=data,
         )
-
         if plan is None:
-            logger.warning("Не удалось рассчитать торговый план")
             return None
 
         is_valid, errors = self.risk_manager.validate_plan(plan)
@@ -282,53 +222,30 @@ class TradingEngine:
             return None
 
         position = self.position_manager.open_position(
-            symbol=self.config.symbol,
-            timeframe=self.config.timeframe,
-            direction=decision.direction,
-            plan=plan,
+            symbol=self.config.symbol, timeframe=self.config.timeframe,
+            direction=decision.direction, plan=plan,
             current_time=bar_time,
-            metadata={
-                "regime": decision.regime.value,
-                "confluence_score": decision.confluence_score,
-            },
+            metadata={"regime": decision.regime.value,
+                     "confluence_score": decision.confluence_score},
         )
-
         if position is None:
             return None
 
         self.portfolio.register_position_opened(position)
         self.journal.log_position_opened(
-            position=position,
-            regime=decision.regime.value,
+            position=position, regime=decision.regime.value,
             confluence_score=decision.confluence_score,
         )
-
-        logger.info(
-            "Открыта позиция %s: %s %s, entry=%.4f, SL=%.4f, size=%.6f",
-            position.id, self.config.symbol, decision.direction.name,
-            position.entry_price, position.stop_loss, position.initial_size,
-        )
-
         return position
 
-    def _on_position_closed(self, position: Position) -> None:
+    def _on_position_closed(self, position):
         self.portfolio.register_position_closed(position)
         self.journal.log_position_closed(position)
 
-        logger.info(
-            "Позиция %s закрыта: reason=%s, pnl=%.2f, equity=%.2f",
-            position.id,
-            position.close_reason.value if position.close_reason else "unknown",
-            position.realized_pnl,
-            self.portfolio.state.current_equity,
-        )
-
-    def _calculate_atr(self, data: pd.DataFrame) -> Optional[float]:
+    def _calculate_atr(self, data):
         import pandas_ta_classic as ta
-
         if len(data) < self.profile.atr_period + 1:
             return None
-
         atr = ta.atr(
             data["high"], data["low"], data["close"],
             length=self.profile.atr_period,
@@ -337,13 +254,11 @@ class TradingEngine:
             return None
         return float(atr.iloc[-1])
 
-    # ============ Управление ============
-
-    def start_new_day(self) -> None:
+    def start_new_day(self):
         self.portfolio.start_new_day()
         self.journal.log_portfolio_snapshot(self.portfolio.state)
 
-    def close_all_positions(self, price: float) -> List[Position]:
+    def close_all_positions(self, price):
         closed = self.position_manager.close_all(
             price, datetime.now(timezone.utc), CloseReason.MANUAL,
         )
@@ -351,11 +266,10 @@ class TradingEngine:
             self._on_position_closed(pos)
         return closed
 
-    def get_stats(self) -> dict:
+    def get_stats(self):
         snapshot = self.portfolio.get_snapshot()
         position_stats = self.position_manager.get_stats()
         trade_stats = self.analytics.get_trade_stats()
-
         return {
             "portfolio": snapshot,
             "positions": position_stats,
@@ -373,15 +287,13 @@ class TradingEngine:
                 "symbol": self.config.symbol,
                 "risk_per_trade_pct": self.profile.risk_per_trade_pct,
                 "atr_multiplier": self.profile.atr_multiplier,
-                "atr_period": self.profile.atr_period,
-                "default_rr_ratio": self.profile.default_rr_ratio,
-                "max_position_pct": self.profile.max_position_pct,
                 "gate_mode_override": self.profile.gate_mode_override,
                 "weights_override": self.profile.weights_override,
+                "harmonic_disabled_patterns": self.profile.harmonic_disabled_patterns,
                 "notes": self.profile.notes,
             },
         }
 
-    def close(self) -> None:
+    def close(self):
         self.journal.close()
         logger.info("TradingEngine закрыт")

@@ -1,8 +1,21 @@
-"""Профили адаптивных параметров для инструментов."""
+"""Профили адаптивных параметров для инструментов.
+
+Данные 7 инструментов × 10000 баров:
+- ADA: +7.21% (Default) ⭐
+- AVAX: +6.45% (Default) ⭐
+- BTC: +6.52% (кастомный ATR 2.5)
+- ETH: +5.25% (кастомный ATR 1.5)
+- AAPL: +2.32% (кастомный ATR 2.0)
+- SOL: −0.82% (Default) → НУЖЕН СВОЙ ПРОФИЛЬ
+- MATIC: делистинг
+
+ВЫВОД: Default profile работает для большинства инструментов.
+Кастомный нужен только для BTC, ETH, AAPL, SOL.
+"""
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +30,7 @@ class SymbolProfile:
     default_rr_ratio: float = 2.0
     gate_mode_override: Optional[str] = None
     weights_override: Optional[Dict[str, float]] = None
+    harmonic_disabled_patterns: Optional[List[str]] = None
     notes: str = ""
 
     def validate(self) -> None:
@@ -37,11 +51,14 @@ class SymbolProfile:
             total = sum(self.weights_override.values())
             if abs(total - 1.0) > 1e-6:
                 raise ValueError(f"Сумма weights_override = 1.0, получено {total}")
+        if self.harmonic_disabled_patterns is not None:
+            valid = {"Gartley", "Bat", "Butterfly", "Crab"}
+            for p in self.harmonic_disabled_patterns:
+                if p not in valid:
+                    raise ValueError(f"Неизвестный паттерн: {p}")
 
 
 class SymbolProfileRegistry:
-    """Реестр профилей."""
-
     def __init__(self):
         self._profiles: Dict[str, SymbolProfile] = {}
         self._default = SymbolProfile(notes="Default profile")
@@ -49,7 +66,6 @@ class SymbolProfileRegistry:
     def register(self, symbol: str, profile: SymbolProfile) -> None:
         profile.validate()
         self._profiles[symbol.upper()] = profile
-        logger.info("Профиль %s зарегистрирован", symbol)
 
     def get(self, symbol: str) -> SymbolProfile:
         symbol_upper = symbol.upper()
@@ -75,16 +91,19 @@ class SymbolProfileRegistry:
 
 def create_default_registry() -> SymbolProfileRegistry:
     """
-    Реестр с базовыми профилями.
+    Реестр с профилями под данные 7 инструментов.
 
-    ВАЖНО: сейчас приоритет — МОЩНОСТЬ системы.
-    Все параметры возвращены к базовым, чтобы системы торговали.
+    Оставляем кастомные только для инструментов, где есть проблема:
+    - BTC: кастомный ATR 2.5 (работает +6.52%)
+    - ETH: кастомный ATR 1.5 (работает +5.25%)
+    - SOL: НОВЫЙ кастомный ATR 2.0 (было −0.82%)
+    - AAPL: кастомный ATR 2.0 (работает +2.32%)
 
-    После измерения качества компонентов — настроим веса под Gate 0.75.
+    Остальные (ADA, AVAX) — Default (работают отлично).
     """
     registry = SymbolProfileRegistry()
 
-    # BTC-USD — базовые параметры для работы
+    # BTC-USD — проверено
     registry.register(
         "BTC-USD",
         SymbolProfile(
@@ -93,13 +112,11 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_multiplier=2.5,
             atr_period=14,
             default_rr_ratio=2.0,
-            gate_mode_override=None,      # ← базовый Gate 0.65
-            weights_override=None,        # ← базовые веса
-            notes="BTC: базовые параметры для сбора статистики",
+            notes="BTC: +6.52%, 63% WR, PF 2.25",
         ),
     )
 
-    # ETH-USD — базовые параметры
+    # ETH-USD — проверено
     registry.register(
         "ETH-USD",
         SymbolProfile(
@@ -108,13 +125,24 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_multiplier=1.5,
             atr_period=14,
             default_rr_ratio=2.0,
-            gate_mode_override=None,
-            weights_override=None,
-            notes="ETH: базовые параметры",
+            notes="ETH: +5.25%, 55% WR, PF 1.30",
         ),
     )
 
-    # AAPL — базовые параметры
+    # SOL-USD — НОВЫЙ профиль (было −0.82% с Default)
+    registry.register(
+        "SOL-USD",
+        SymbolProfile(
+            risk_per_trade_pct=0.007,       # ниже — волатильный
+            max_position_pct=0.5,           # ограничение
+            atr_multiplier=2.0,             # шире SL
+            atr_period=14,
+            default_rr_ratio=2.0,
+            notes="SOL: тест ATR 2.0 (было −0.82%)",
+        ),
+    )
+
+    # AAPL — проверено
     registry.register(
         "AAPL",
         SymbolProfile(
@@ -123,10 +151,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_multiplier=2.0,
             atr_period=14,
             default_rr_ratio=2.0,
-            gate_mode_override=None,
-            weights_override=None,
-            notes="AAPL: базовые параметры",
+            notes="AAPL: +2.32%, 100% WR",
         ),
     )
+
+    # ADA, AVAX — Default (работают отлично)
 
     return registry

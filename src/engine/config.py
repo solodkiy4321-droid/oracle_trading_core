@@ -30,7 +30,7 @@ class EngineConfig:
     # Confluence
     gate_mode: str = "balanced"
 
-    # Risk Manager (базовые значения — переопределяются профилем)
+    # Risk Manager
     risk_per_trade_pct: float = 0.01
     atr_period: int = 14
     atr_multiplier: float = 1.5
@@ -43,15 +43,15 @@ class EngineConfig:
     max_position_age_bars: int = 100
     commission_pct: float = 0.001
 
-    # Portfolio Risk
+    # Portfolio Risk — ОСЛАБЛЕНО для сбора статистики
     daily_loss_limit_pct: float = 0.03
     daily_profit_target_pct: float = 0.06
     max_drawdown_pct: float = 0.15
     max_open_positions: int = 5
     max_positions_per_symbol: int = 1
     max_positions_per_group: int = 2
-    pause_after_consecutive_losses: int = 3
-    pause_duration_hours: int = 24
+    pause_after_consecutive_losses: int = 5    # было 3
+    pause_duration_hours: int = 12             # было 24
 
     # Journal
     journal_db_path: str = "journal.db"
@@ -72,7 +72,7 @@ class EngineConfig:
                 atr_multiplier=self.atr_multiplier,
                 atr_period=self.atr_period,
                 default_rr_ratio=self.default_rr_ratio,
-                notes="Профили отключены — используются базовые параметры",
+                notes="Профили отключены",
             )
 
         registry = self.symbol_profiles
@@ -103,4 +103,14 @@ class EngineConfig:
             raise ValueError(
                 f"Неверный gate_mode: {self.gate_mode}. "
                 f"Допустимые: 'aggressive', 'balanced', 'conservative'"
+            )
+        if self.pause_after_consecutive_losses < 1:
+            raise ValueError(
+                f"pause_after_consecutive_losses должен быть >= 1, "
+                f"получено {self.pause_after_consecutive_losses}"
+            )
+        if self.pause_duration_hours < 1:
+            raise ValueError(
+                f"pause_duration_hours должен быть >= 1, "
+                f"получено {self.pause_duration_hours}"
             )

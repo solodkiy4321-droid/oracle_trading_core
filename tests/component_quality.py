@@ -1,24 +1,11 @@
-"""Диагностика качества отдельных компонентов анализаторов.
-
-Разбирает каждый анализатор на компоненты и измеряет IC каждого компонента:
-- indicators: RSI, MACD, EMA, Bollinger, свечи
-- harmonic: Gartley, Bat, Butterfly, Crab
-- support_resistance: сила уровня, близость, тренд
-
-Цель: понять, какие компоненты работают, какие шумят.
-"""
+"""Диагностика качества отдельных компонентов анализаторов."""
 
 import asyncio
 import csv
 import math
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, List, Dict, Tuple
-
-import numpy as np
-import pandas as pd
-import pandas_ta_classic as ta
+from typing import Optional, List, Dict
 
 from src.logger import setup_logging
 from src.data.fetcher import MarketDataFetcher
@@ -28,10 +15,7 @@ from src.engine.trading_engine import TradingEngine
 setup_logging(level="ERROR")
 
 
-# ============ Утилиты ============
-
 def correlation(x: List[float], y: List[float]) -> float:
-    """Pearson correlation."""
     if len(x) < 2 or len(x) != len(y):
         return 0.0
     n = len(x)
@@ -46,7 +30,6 @@ def correlation(x: List[float], y: List[float]) -> float:
 
 
 def verdict_ic(ic: float) -> str:
-    """Вердикт по IC."""
     if ic > 0.15:
         return "✅✅ отлично"
     elif ic > 0.10:
@@ -59,167 +42,59 @@ def verdict_ic(ic: float) -> str:
         return "🚨 ВРЕДИТ"
 
 
-# ============ Компоненты Indicators ============
+# ============ Парсинг reasons ============
 
-def extract_indicator_components(data: pd.DataFrame) -> Dict[str, float]:
-    """
-    Извлекает компоненты indicators из данных.
+def parse_analyzer_from_reason(reason: str) -> Optional[dict]:
+    """Парсит reason. Формат: 'indicators: BUY (conf=0.62, ...) — детали'."""
+    if ":" not in reason:
+        return None
 
-    Возвращает словарь с направлениями:
-    - rsi_signal: +1 (oversold), -1 (overbought), 0 (нейтрально)
-    - macd_signal: +1 (bullish), -1 (bearish), 0
-    - ema_signal: +1 (bullish alignment), -1 (bearish), 0
-    - bb_signal: +1 (lower touch), -1 (upper touch), 0
-    - candle_signal: +1 (bullish candle), -1 (bearish), 0
-    """
-    if len(data) < 50:
-        return {}
+    analyzer_name = reason.split(":")[0].strip()
+    if analyzer_name not in ("indicators", "harmonic", "support_resistance"):
+        return None
 
-    components = {}
-
-    # RSI
-    rsi = ta.rsi(data["close"], length=14)
-    if rsi is not None and len(rsi) > 0:
-        rsi_val = float(rsi.iloc[-1])
-        if rsi_val < 30:
-            components["rsi_signal"] = 1.0
-        elif rsi_val > 70:
-            components["rsi_signal"] = -1.0
-        else:
-            components["rsi_signal"] = 0.0
-
-    # MACD
-    macd = ta.macd(data["close"])
-    if macd is not None and len(macd) > 0:
-        macd_hist = float(macd["MACDh_12_26_9"].iloc[-1])
-        components["macd_signal"] = 1.0 if macd_hist > 0 else -1.0
-
-    # EMA
-    ema9 = ta.ema(data["close"], length=9)
-    sma20 = ta.sma(data["close"], length=20)
-    sma50 = ta.sma(data["close"], length=50)
-    if all(x is not None and len(x) > 0 for x in [ema9, sma20, sma50]):
-        e9 = float(ema9.iloc[-1])
-        s20 = float(sma20.iloc[-1])
-        s50 = float(sma50.iloc[-1])
-        if e9 > s20 > s50:
-            components["ema_signal"] = 1.0
-        elif e9 < s20 < s50:
-            components["ema_signal"] = -1.0
-        else:
-            components["ema_signal"] = 0.0
-
-    # Bollinger Bands
-    bb = ta.bbands(data["close"], length=20)
-    if bb is not None and len(bb) > 0:
-        bb_upper = float(bb["BBU_20_2.0"].iloc[-1])
-        bb_lower = float(bb["BBL_20_2.0"].iloc[-1])
-        current = float(data["close"].iloc[-1])
-        if current <= bb_lower:
-            components["bb_signal"] = 1.0
-        elif current >= bb_upper:
-            components["bb_signal"] = -1.0
-        else:
-            components["bb_signal"] = 0.0
-
-    # Свечи
-    open_ = data["open"].values
-    high = data["high"].values
-    low = data["low"].values
-    close = data["close"].values
-
-    hammer = ta.cdl_pattern(name="hammer", open_=open_, high=high, low=low, close=close)
-    engulfing = ta.cdl_pattern(name="engulfing", open_=open_, high=high, low=low, close=close)
-
-    candle = 0.0
-    if hammer is not None and len(hammer) > 0 and float(hammer.iloc[-1]) > 0:
-        candle = 1.0
-    elif engulfing is not None and len(engulfing) > 0:
-        eng_val = float(engulfing.iloc[-1])
-        candle = 1.0 if eng_val > 0 else (-1.0 if eng_val < 0 else 0.0)
-    components["candle_signal"] = candle
-
-    return components
-
-
-# ============ Компоненты Harmonic ============
-
-def extract_harmonic_components(decision_reasons: List[str]) -> Dict[str, float]:
-    """
-    Извлекает паттерн harmonic из decision.reasons.
-
-    Возвращает:
-    - gartley_signal: +1 (bullish), -1 (bearish), 0 (нет)
-    - bat_signal
-    - butterfly_signal
-    - crab_signal
-    """
-    components = {
-        "gartley_signal": 0.0,
-        "bat_signal": 0.0,
-        "butterfly_signal": 0.0,
-        "crab_signal": 0.0,
+    result = {
+        "analyzer": analyzer_name,
+        "direction": None,
+        "confidence": None,
+        "pattern_type": None,
     }
 
-    for reason in decision_reasons:
-        if "harmonic" not in reason:
-            continue
-        reason_lower = reason.lower()
-        direction = 0.0
-        if "bullish" in reason_lower:
-            direction = 1.0
-        elif "bearish" in reason_lower:
-            direction = -1.0
+    if "BUY" in reason:
+        result["direction"] = "BUY"
+    elif "SELL" in reason:
+        result["direction"] = "SELL"
 
-        if "gartley" in reason_lower:
-            components["gartley_signal"] = direction
-        elif "bat" in reason_lower:
-            components["bat_signal"] = direction
-        elif "butterfly" in reason_lower:
-            components["butterfly_signal"] = direction
-        elif "crab" in reason_lower:
-            components["crab_signal"] = direction
+    if "conf=" in reason:
+        try:
+            result["confidence"] = float(reason.split("conf=")[1].split(",")[0])
+        except (ValueError, IndexError):
+            pass
 
-    return components
+    # Паттерн для harmonic (если есть)
+    for pattern in ["Gartley", "Bat", "Butterfly", "Crab"]:
+        if pattern.lower() in reason.lower():
+            result["pattern_type"] = pattern
+            break
+
+    return result
 
 
-# ============ Компоненты S/R ============
-
-def extract_sr_components(decision_reasons: List[str], meta: dict) -> Dict[str, float]:
-    """
-    Извлекает компоненты S/R из reasons и metadata.
-    """
-    components = {
-        "sr_strength": 0.0,
-        "sr_proximity": 0.0,
-        "sr_touches": 0.0,
+def extract_all_signals(decision_reasons: List[str]) -> dict:
+    """Извлекает сигналы всех анализаторов."""
+    result = {
+        "indicators": None,
+        "harmonic": None,
+        "support_resistance": None,
     }
-
     for reason in decision_reasons:
-        if "support_resistance" not in reason:
+        parsed = parse_analyzer_from_reason(reason)
+        if parsed is None:
             continue
-        # Извлекаем strength из reason
-        if "strength=" in reason:
-            try:
-                s = float(reason.split("strength=")[1].split(",")[0])
-                components["sr_strength"] = s
-            except (ValueError, IndexError):
-                pass
-        if "touches=" in reason:
-            try:
-                t = float(reason.split("touches=")[1].split(",")[0])
-                components["sr_touches"] = t
-            except (ValueError, IndexError):
-                pass
-        if "distance=" in reason:
-            try:
-                d_str = reason.split("distance=")[1].rstrip("%").split(",")[0]
-                d = float(d_str)
-                components["sr_proximity"] = 1.0 - (d / 2.0)  # 0% → 1.0, 2% → 0.0
-            except (ValueError, IndexError):
-                pass
-
-    return components
+        analyzer = parsed["analyzer"]
+        if result[analyzer] is None:
+            result[analyzer] = parsed
+    return result
 
 
 # ============ Сбор данных ============
@@ -230,11 +105,18 @@ async def collect_detailed_trades(
     bars_to_process: int = 5000,
     export_dir: str = "backtest_results/component_quality",
 ) -> List[dict]:
-    """
-    Собирает данные по каждой сделке + компоненты анализаторов на момент входа.
-    """
+    """Собирает данные по каждой сделке. Удаляет старую БД."""
     export_path = Path(export_dir)
     export_path.mkdir(parents=True, exist_ok=True)
+
+    # УДАЛЯЕМ старую БД для гарантии свежести данных
+    db_path = export_path / f"comp_{symbol.replace('-', '_')}.db"
+    if db_path.exists():
+        try:
+            db_path.unlink()
+            print(f"  Удалена старая БД: {db_path.name}")
+        except Exception as e:
+            print(f"  ⚠️  Не удалось удалить {db_path}: {e}")
 
     fetcher = MarketDataFetcher()
     try:
@@ -244,7 +126,6 @@ async def collect_detailed_trades(
         return []
 
     if len(data) < 500:
-        print(f"⚠️  Недостаточно данных для {symbol}")
         return []
 
     if len(data) < bars_to_process:
@@ -254,7 +135,7 @@ async def collect_detailed_trades(
         starting_equity=10000.0,
         symbol=symbol,
         timeframe=timeframe,
-        journal_db_path=f"{export_dir}/comp_{symbol.replace('-', '_')}.db",
+        journal_db_path=str(db_path),
         gate_mode="balanced",
         snapshot_every_n_bars=999999,
     )
@@ -275,15 +156,10 @@ async def collect_detailed_trades(
             data=slice_data, bar_index=i, bar_time=bar_time,
         )
 
-        # Открытие позиции
         if result.opened_position is not None and result.decision is not None:
             decision = result.decision
             pos = result.opened_position
-
-            # Извлекаем компоненты
-            indicator_comps = extract_indicator_components(slice_data)
-            harmonic_comps = extract_harmonic_components(decision.reasons)
-            sr_comps = extract_sr_components(decision.reasons, decision.weights_used)
+            signals = extract_all_signals(decision.reasons)
 
             record = {
                 "position_id": pos.id,
@@ -292,29 +168,23 @@ async def collect_detailed_trades(
                 "regime": decision.regime.value,
                 "score": decision.confluence_score,
                 "entry_price": pos.entry_price,
-                "entry_time": bar_time.isoformat() if bar_time else "",
                 "exit_price": None,
-                "exit_time": None,
                 "exit_reason": None,
                 "pnl": None,
-                # Indicator components
-                **{f"ind_{k}": v for k, v in indicator_comps.items()},
-                # Harmonic components
-                **{f"harm_{k}": v for k, v in harmonic_comps.items()},
-                # S/R components
-                **{f"sr_{k}": v for k, v in sr_comps.items()},
+                "indicators_dir": signals["indicators"]["direction"] if signals["indicators"] else None,
+                "indicators_conf": signals["indicators"]["confidence"] if signals["indicators"] else None,
+                "harmonic_dir": signals["harmonic"]["direction"] if signals["harmonic"] else None,
+                "harmonic_conf": signals["harmonic"]["confidence"] if signals["harmonic"] else None,
+                "harmonic_pattern": signals["harmonic"]["pattern_type"] if signals["harmonic"] else None,
+                "sr_dir": signals["support_resistance"]["direction"] if signals["support_resistance"] else None,
+                "sr_conf": signals["support_resistance"]["confidence"] if signals["support_resistance"] else None,
             }
             trades.append(record)
 
-        # Закрытие
         for closed in result.closed_positions:
             for t in trades:
                 if t["position_id"] == closed.id:
                     t["exit_price"] = closed.close_price
-                    t["exit_time"] = (
-                        closed.close_time.isoformat()
-                        if closed.close_time else ""
-                    )
                     t["exit_reason"] = (
                         closed.close_reason.value
                         if closed.close_reason else "unknown"
@@ -328,140 +198,94 @@ async def collect_detailed_trades(
 
 # ============ Анализ ============
 
-def analyze_component(
-    trades: List[dict],
-    component_key: str,
-    component_name: str,
-    signal_type: str = "continuous",
-):
-    """
-    Анализирует один компонент.
+def analyze_analyzer(trades: List[dict], analyzer_name: str):
+    dir_key = f"{analyzer_name}_dir"
+    conf_key = f"{analyzer_name}_conf"
 
-    signal_type:
-    - 'continuous': значение компонента — непрерывная переменная (IC)
-    - 'directional': сигнал -1/0/+1 — считаем win rate по совпадению с направлением сделки
-    """
-    # Фильтруем сделки с этим компонентом
     relevant = [
         t for t in trades
-        if component_key in t
-        and t[component_key] is not None
-        and t.get("pnl") is not None
+        if t.get(dir_key) is not None and t.get("pnl") is not None
     ]
 
-    if len(relevant) < 2:
-        return None
-
-    if signal_type == "continuous":
-        # IC между значением компонента и PnL
-        values = [t[component_key] for t in relevant]
-        pnls = [t["pnl"] for t in relevant]
-        ic = correlation(values, pnls)
-
-        # Дополнительно: PnL когда компонент > 0 vs < 0
-        pos_cases = [t["pnl"] for t in relevant if t[component_key] > 0]
-        neg_cases = [t["pnl"] for t in relevant if t[component_key] < 0]
-
-        return {
-            "name": component_name,
-            "n": len(relevant),
-            "ic": ic,
-            "n_pos": len(pos_cases),
-            "avg_pnl_pos": sum(pos_cases) / len(pos_cases) if pos_cases else 0.0,
-            "n_neg": len(neg_cases),
-            "avg_pnl_neg": sum(neg_cases) / len(neg_cases) if neg_cases else 0.0,
-        }
-
-    elif signal_type == "directional":
-        # Сигнал -1/0/+1. Считаем win rate когда сигнал совпадает с направлением сделки
-        match_pnls = []
-        mismatch_pnls = []
-        neutral_pnls = []
-
-        for t in relevant:
-            sig = t[component_key]
-            trade_dir = 1.0 if t["direction"] == "BUY" else -1.0
-
-            if sig == 0.0:
-                neutral_pnls.append(t["pnl"])
-            elif sig == trade_dir:
-                match_pnls.append(t["pnl"])
-            else:
-                mismatch_pnls.append(t["pnl"])
-
-        def stats(pnls_list):
-            if not pnls_list:
-                return (0, 0.0, 0.0)
-            wins = sum(1 for p in pnls_list if p > 0)
-            return (
-                len(pnls_list),
-                wins / len(pnls_list),
-                sum(pnls_list) / len(pnls_list),
-            )
-
-        n_match, wr_match, pnl_match = stats(match_pnls)
-        n_mismatch, wr_mismatch, pnl_mismatch = stats(mismatch_pnls)
-        n_neutral, wr_neutral, pnl_neutral = stats(neutral_pnls)
-
-        # IC = разница между match и mismatch win rate
-        ic_proxy = wr_match - wr_mismatch if (n_match > 0 and n_mismatch > 0) else 0.0
-
-        return {
-            "name": component_name,
-            "n": len(relevant),
-            "ic": ic_proxy,
-            "n_match": n_match,
-            "wr_match": wr_match,
-            "pnl_match": pnl_match,
-            "n_mismatch": n_mismatch,
-            "wr_mismatch": wr_mismatch,
-            "pnl_mismatch": pnl_mismatch,
-            "n_neutral": n_neutral,
-        }
-
-
-def print_component_report(results: List[dict], title: str, signal_type: str = "continuous"):
-    """Печатает отчёт по компонентам."""
     print(f"\n{'=' * 70}")
-    print(title)
+    print(f"{analyzer_name.upper()}")
     print(f"{'=' * 70}")
 
-    results = [r for r in results if r is not None]
-    if not results:
-        print("  Нет данных")
+    if len(relevant) < 3:
+        print(f"  Недостаточно данных: {len(relevant)}")
         return
 
-    if signal_type == "continuous":
-        for r in results:
-            print(f"\n  {r['name']}:")
-            print(f"    n={r['n']}, IC={r['ic']:+.3f} {verdict_ic(r['ic'])}")
-            if r["n_pos"] > 0:
-                print(f"    Когда > 0 (n={r['n_pos']}): avg_pnl=${r['avg_pnl_pos']:+.2f}")
-            if r["n_neg"] > 0:
-                print(f"    Когда < 0 (n={r['n_neg']}): avg_pnl=${r['avg_pnl_neg']:+.2f}")
+    print(f"  Сделок: {len(relevant)}")
 
-    elif signal_type == "directional":
-        for r in results:
-            print(f"\n  {r['name']}:")
-            print(f"    IC proxy={r['ic']:+.3f} {verdict_ic(r['ic'])}")
-            if r["n_match"] > 0:
-                print(
-                    f"    Совпал с направлением (n={r['n_match']}): "
-                    f"WR={r['wr_match'] * 100:.1f}%, avg=${r['pnl_match']:+.2f}"
-                )
-            if r["n_mismatch"] > 0:
-                print(
-                    f"    Против направления (n={r['n_mismatch']}): "
-                    f"WR={r['wr_mismatch'] * 100:.1f}%, avg=${r['pnl_mismatch']:+.2f}"
-                )
-            if r["n_neutral"] > 0:
-                print(f"    Нейтрально (n={r['n_neutral']})")
+    match = [t for t in relevant if t[dir_key] == t["direction"]]
+    mismatch = [t for t in relevant if t[dir_key] != t["direction"]]
+
+    def stats(cases):
+        if not cases:
+            return (0, 0.0, 0.0)
+        wins = sum(1 for t in cases if t["pnl"] > 0)
+        return (len(cases), wins / len(cases), sum(t["pnl"] for t in cases) / len(cases))
+
+    n_match, wr_match, pnl_match = stats(match)
+    n_mismatch, wr_mismatch, pnl_mismatch = stats(mismatch)
+
+    if n_match > 0:
+        print(f"  Совпал: n={n_match}, WR={wr_match*100:.1f}%, avg=${pnl_match:+.2f}")
+    if n_mismatch > 0:
+        print(f"  Против: n={n_mismatch}, WR={wr_mismatch*100:.1f}%, avg=${pnl_mismatch:+.2f}")
+
+    ic_proxy = wr_match - wr_mismatch if (n_match > 0 and n_mismatch > 0) else 0.0
+    print(f"  IC proxy: {ic_proxy:+.3f} {verdict_ic(ic_proxy)}")
+
+    confs = [t[conf_key] for t in relevant if t.get(conf_key) is not None]
+    pnls = [t["pnl"] for t in relevant if t.get(conf_key) is not None]
+    if len(confs) >= 3 and len(set(confs)) > 1:
+        ic = correlation(confs, pnls)
+        print(f"  IC (confidence vs PnL): {ic:+.3f} {verdict_ic(ic)}")
+
+        print(f"\n  Win rate по confidence:")
+        quantiles = [(0.0, 0.3), (0.3, 0.5), (0.5, 0.7), (0.7, 0.9), (0.9, 1.01)]
+        for low, high in quantiles:
+            subset = [(t[conf_key], t["pnl"]) for t in relevant
+                      if t.get(conf_key) is not None and low <= t[conf_key] < high]
+            if not subset:
+                continue
+            wins = sum(1 for _, p in subset if p > 0)
+            win_rate = wins / len(subset)
+            avg_pnl = sum(p for _, p in subset) / len(subset)
+            print(
+                f"    conf {low:.1f}-{high:.1f}: n={len(subset):3d}, "
+                f"WR={win_rate*100:5.1f}%, avg=${avg_pnl:+7.2f}"
+            )
+
+
+def analyze_harmonic_patterns(trades: List[dict]):
+    print(f"\n{'=' * 70}")
+    print("HARMONIC: ПО ПАТТЕРНАМ")
+    print(f"{'=' * 70}")
+
+    for pattern_name in ["Gartley", "Bat", "Butterfly", "Crab"]:
+        relevant = [
+            t for t in trades
+            if t.get("harmonic_pattern") == pattern_name
+            and t.get("pnl") is not None
+        ]
+        if len(relevant) < 2:
+            print(f"\n  {pattern_name}: недостаточно данных ({len(relevant)})")
+            continue
+        wins = sum(1 for t in relevant if t["pnl"] > 0)
+        win_rate = wins / len(relevant)
+        avg_pnl = sum(t["pnl"] for t in relevant) / len(relevant)
+        total_pnl = sum(t["pnl"] for t in relevant)
+        print(f"\n  {pattern_name}:")
+        print(f"    n={len(relevant)}, WR={win_rate*100:.1f}%, "
+              f"avg=${avg_pnl:+.2f}, total=${total_pnl:+.2f}")
 
 
 async def main():
-    """Запускает диагностику компонентов."""
     symbols = [
-        ("ETH-USD", "1h"),  # BTC сначала откатить — пока только ETH
+        ("BTC-USD", "1h"),
+        ("ETH-USD", "1h"),
     ]
 
     all_trades = {}
@@ -480,46 +304,24 @@ async def main():
             continue
 
         print(f"\n\n{'#' * 70}")
-        print(f"# АНАЛИЗ КОМПОНЕНТОВ: {symbol}")
+        print(f"# АНАЛИЗ: {symbol}")
         print(f"{'#' * 70}")
 
-        # ============ Indicators components ============
-        ind_results = []
-        for key, name in [
-            ("ind_rsi_signal", "RSI"),
-            ("ind_macd_signal", "MACD"),
-            ("ind_ema_signal", "EMA"),
-            ("ind_bb_signal", "Bollinger Bands"),
-            ("ind_candle_signal", "Свечи"),
-        ]:
-            r = analyze_component(trades, key, name, "directional")
-            ind_results.append(r)
-        print_component_report(ind_results, "INDICATORS: КОМПОНЕНТЫ", "directional")
+        completed = [t for t in trades if t.get("pnl") is not None]
+        wins = [t for t in completed if t["pnl"] > 0]
+        losses = [t for t in completed if t["pnl"] < 0]
+        total_pnl = sum(t["pnl"] for t in completed)
 
-        # ============ Harmonic components ============
-        harm_results = []
-        for key, name in [
-            ("harm_gartley_signal", "Gartley"),
-            ("harm_bat_signal", "Bat"),
-            ("harm_butterfly_signal", "Butterfly"),
-            ("harm_crab_signal", "Crab"),
-        ]:
-            r = analyze_component(trades, key, name, "directional")
-            harm_results.append(r)
-        print_component_report(harm_results, "HARMONIC: КОМПОНЕНТЫ", "directional")
+        print(f"\nВсего: {len(completed)}, Побед: {len(wins)}, Убытков: {len(losses)}")
+        if completed:
+            print(f"Win rate: {len(wins) / len(completed) * 100:.1f}%")
+        print(f"PnL: ${total_pnl:+.2f}")
 
-        # ============ S/R components ============
-        sr_results = []
-        for key, name in [
-            ("sr_sr_strength", "Сила уровня"),
-            ("sr_sr_proximity", "Близость к уровню"),
-            ("sr_sr_touches", "Количество касаний"),
-        ]:
-            r = analyze_component(trades, key, name, "continuous")
-            sr_results.append(r)
-        print_component_report(sr_results, "S/R: КОМПОНЕНТЫ", "continuous")
+        analyze_analyzer(trades, "indicators")
+        analyze_analyzer(trades, "harmonic")
+        analyze_analyzer(trades, "support_resistance")
+        analyze_harmonic_patterns(trades)
 
-    # Экспорт
     for symbol, trades in all_trades.items():
         if not trades:
             continue
