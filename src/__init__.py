@@ -1,0 +1,1 @@
+"""Oracle Trading Core — ядро анализа."""
