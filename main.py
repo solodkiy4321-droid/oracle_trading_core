@@ -1,4 +1,4 @@
-"""Точка входа: расширенный бэктест на 5000 баров."""
+"""Точка входа: расширенный бэктест с профилями инструментов."""
 
 import asyncio
 import csv
@@ -97,6 +97,17 @@ async def run_backtest(
     )
 
     engine = TradingEngine(config)
+
+    # Выводим профиль
+    profile = engine.profile
+    print(f"\nПрофиль {symbol}:")
+    print(f"  Risk per trade:  {profile.risk_per_trade_pct * 100:.2f}%")
+    print(f"  ATR multiplier:  {profile.atr_multiplier:.2f}")
+    print(f"  ATR period:      {profile.atr_period}")
+    print(f"  R:R ratio:       1:{profile.default_rr_ratio:.1f}")
+    print(f"  Max position:    {profile.max_position_pct * 100:.0f}%")
+    print(f"  Notes:           {profile.notes}")
+
     start_idx = max(250, len(data) - bars_to_process)
     total_bars = len(data) - start_idx
 
@@ -244,6 +255,13 @@ async def run_backtest(
         "signals_above_050": scores_above_050,
         "close_reasons": dict(close_reason_counter),
         "regimes": dict(regime_counter),
+        "profile": {
+            "risk_per_trade_pct": profile.risk_per_trade_pct,
+            "atr_multiplier": profile.atr_multiplier,
+            "default_rr_ratio": profile.default_rr_ratio,
+            "max_position_pct": profile.max_position_pct,
+            "notes": profile.notes,
+        },
     }
 
 
@@ -259,6 +277,7 @@ async def main():
 
     print("\n" + "=" * 70)
     print("РАСШИРЕННЫЙ БЭКТЕСТ: 3 инструмента x 5000 баров")
+    print("(с адаптивными профилями)")
     print("=" * 70)
 
     all_results = []
@@ -296,6 +315,18 @@ async def main():
             f"{r['expectancy']:>8.2f}"
         )
 
+    print("\n" + "=" * 70)
+    print("ПРИМЕНЁННЫЕ ПРОФИЛИ")
+    print("=" * 70)
+    for r in all_results:
+        p = r["profile"]
+        print(f"\n{r['symbol']}:")
+        print(f"  Risk:        {p['risk_per_trade_pct'] * 100:.2f}%")
+        print(f"  ATR mult:    {p['atr_multiplier']:.2f}")
+        print(f"  R:R ratio:   1:{p['default_rr_ratio']:.1f}")
+        print(f"  Max pos:     {p['max_position_pct'] * 100:.0f}%")
+        print(f"  Notes:       {p['notes']}")
+
     if all_results:
         total_trades = sum(r["trades"] for r in all_results)
         total_wins = sum(r["wins"] for r in all_results)
@@ -309,8 +340,6 @@ async def main():
         if total_trades > 0:
             print(f"  Общий win rate: {total_wins / total_trades * 100:.1f}%")
         print(f"  Общий P&L:      ${total_pnl:.2f}")
-        print(f"  Сигналов >= 0.65: {sum(r['signals_above_065'] for r in all_results)}")
-        print(f"  Сигналов >= 0.60: {sum(r['signals_above_060'] for r in all_results)}")
 
     print("\n" + "=" * 70)
     print("Данные сохранены в backtest_results/")

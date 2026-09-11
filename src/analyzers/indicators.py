@@ -1,7 +1,14 @@
-"""Анализатор на основе технических индикаторов с бонусом за согласованность."""
+"""Анализатор индикаторов с расширенными градациями confidence.
+
+УЛУЧШЕНИЯ:
+- RSI пороги 30/70 → 40/60 (больше сигналов)
+- Bollinger Bands — близость к границе (не только касание)
+- Больше свечных паттернов (Doji, Shooting Star, etc.)
+- Градации confidence — учитываем частичные сигналы
+"""
 
 import logging
-from typing import Optional, Dict, Tuple
+from typing import Optional, Dict
 
 import pandas as pd
 import pandas_ta_classic as ta
@@ -15,20 +22,7 @@ logger = logging.getLogger(__name__)
 
 class IndicatorsAnalyzer(BaseAnalyzer):
     """
-    Анализатор на основе комбинации технических индикаторов:
-    RSI, MACD, EMA, Bollinger Bands, свечные паттерны.
-
-    КЛЮЧЕВОЕ УЛУЧШЕНИЕ: бонус за согласованность индикаторов.
-
-    Раньше confidence был жёстко ограничен формулой (bullish_score / total_weight)
-    и не превышал 0.54. Теперь confidence усиливается, если несколько
-    индикаторов согласованы между собой.
-
-    Логика:
-    - Считаем bullish_score и bearish_score от каждого индикатора
-    - Определяем, сколько индикаторов согласованы с доминирующим направлением
-    - Применяем бонус за согласованность
-    - Ограничиваем confidence сверху (max 0.95)
+    Анализатор индикаторов с расширенными градациями confidence.
     """
 
     DEFAULT_WEIGHTS = {
@@ -49,16 +43,6 @@ class IndicatorsAnalyzer(BaseAnalyzer):
         agreement_bonus_step: float = 0.15,
         max_confidence: float = 0.95,
     ):
-        """
-        Args:
-            name: Имя анализатора
-            weights: Веса для каждого индикатора (переопределяют DEFAULT_WEIGHTS)
-            min_confidence: Минимальная уверенность для возврата сигнала
-            use_trend_filter: Использовать ли фильтр тренда
-            trend_penalty: Штраф к уверенности за сигнал против тренда
-            agreement_bonus_step: Шаг бонуса за каждый согласованный индикатор
-            max_confidence: Максимальная уверенность (ограничение сверху)
-        """
         super().__init__(name)
         self._weights = {**self.DEFAULT_WEIGHTS, **(weights or {})}
         self._min_confidence = min_confidence
@@ -72,7 +56,6 @@ class IndicatorsAnalyzer(BaseAnalyzer):
         if data is None or len(data) < 50:
             return None
 
-        # Рассчитываем индикаторы
         rsi = ta.rsi(data["close"], length=14)
         macd = ta.macd(data["close"])
         ema9 = ta.ema(data["close"], length=9)
@@ -83,40 +66,42 @@ class IndicatorsAnalyzer(BaseAnalyzer):
         if any(x is None for x in [rsi, macd, ema9, sma20, sma50, bb]):
             return None
 
-        # Последние значения
         rsi_val = float(rsi.iloc[-1])
         macd_hist = float(macd["MACDh_12_26_9"].iloc[-1])
         ema9_val = float(ema9.iloc[-1])
         sma20_val = float(sma20.iloc[-1])
         sma50_val = float(sma50.iloc[-1])
         bb_upper = float(bb["BBU_20_2.0"].iloc[-1])
+        bb_middle = float(bb["BBM_20_2.0"].iloc[-1])
         bb_lower = float(bb["BBL_20_2.0"].iloc[-1])
         current_price = float(data["close"].iloc[-1])
 
-        # Взвешенное голосование
         bullish_score = 0.0
         bearish_score = 0.0
         total_weight = 0.0
         reasons = []
-
-        # Считаем количество согласованных индикаторов
         bullish_count = 0
         bearish_count = 0
-        neutral_count = 0
 
-        # RSI
+        # RSI — ОСЛАБЛЕННЫЕ пороги 40/60
         w = self._weights["rsi"]
         total_weight += w
         if rsi_val < 30:
-            bullish_score += w
+            bullish_score += w * 1.0
             bullish_count += 1
-            reasons.append(f"RSI={rsi_val:.1f} (oversold)")
+            reasons.append(f"RSI={rsi_val:.1f} (strong oversold)")
+        elif rsi_val < 40:
+            bullish_score += w * 0.5
+            bullish_count += 1
+            reasons.append(f"RSI={rsi_val:.1f} (mild oversold)")
         elif rsi_val > 70:
-            bearish_score += w
+            bearish_score += w * 1.0
             bearish_count += 1
-            reasons.append(f"RSI={rsi_val:.1f} (overbought)")
-        else:
-            neutral_count += 1
+            reasons.append(f"RSI={rsi_val:.1f} (strong overbought)")
+        elif rsi_val > 60:
+            bearish_score += w * 0.5
+            bearish_count += 1
+            reasons.append(f"RSI={rsi_val:.1f} (mild overbought)")
 
         # MACD
         w = self._weights["macd"]
@@ -129,8 +114,6 @@ class IndicatorsAnalyzer(BaseAnalyzer):
             bearish_score += w
             bearish_count += 1
             reasons.append(f"MACD hist={macd_hist:.4f} (bearish)")
-        else:
-            neutral_count += 1
 
         # EMA alignment
         w = self._weights["ema_alignment"]
@@ -143,24 +126,41 @@ class IndicatorsAnalyzer(BaseAnalyzer):
             bearish_score += w
             bearish_count += 1
             reasons.append("EMA alignment (bearish)")
-        else:
-            neutral_count += 1
+        elif ema9_val > sma20_val:
+            bullish_score += w * 0.4
+            bullish_count += 1
+            reasons.append("EMA partial bullish")
+        elif ema9_val < sma20_val:
+            bearish_score += w * 0.4
+            bearish_count += 1
+            reasons.append("EMA partial bearish")
 
-        # Bollinger Bands
+        # Bollinger Bands — ГРАДАЦИИ
         w = self._weights["bollinger"]
         total_weight += w
-        if current_price <= bb_lower:
-            bullish_score += w
-            bullish_count += 1
-            reasons.append(f"BB lower touch ({current_price:.2f} <= {bb_lower:.2f})")
-        elif current_price >= bb_upper:
-            bearish_score += w
-            bearish_count += 1
-            reasons.append(f"BB upper touch ({current_price:.2f} >= {bb_upper:.2f})")
-        else:
-            neutral_count += 1
+        bb_range = bb_upper - bb_lower
+        if bb_range > 0:
+            distance_to_lower = (current_price - bb_lower) / bb_range
+            distance_to_upper = (bb_upper - current_price) / bb_range
 
-        # Свечные паттерны
+            if current_price <= bb_lower:
+                bullish_score += w
+                bullish_count += 1
+                reasons.append("BB lower touch")
+            elif distance_to_lower < 0.2:
+                bullish_score += w * 0.5
+                bullish_count += 1
+                reasons.append("BB near lower")
+            elif current_price >= bb_upper:
+                bearish_score += w
+                bearish_count += 1
+                reasons.append("BB upper touch")
+            elif distance_to_upper < 0.2:
+                bearish_score += w * 0.5
+                bearish_count += 1
+                reasons.append("BB near upper")
+
+        # Свечные паттерны — БОЛЬШЕ ПАТТЕРНОВ
         w = self._weights["candle_pattern"]
         total_weight += w
         open_ = data["open"].values
@@ -168,36 +168,32 @@ class IndicatorsAnalyzer(BaseAnalyzer):
         low = data["low"].values
         close = data["close"].values
 
-        candle_signal = False
-        hammer = ta.cdl_pattern(
-            name="hammer", open_=open_, high=high, low=low, close=close,
-        )
-        engulfing = ta.cdl_pattern(
-            name="engulfing", open_=open_, high=high, low=low, close=close,
-        )
+        hammer = ta.cdl_pattern(name="hammer", open_=open_, high=high, low=low, close=close)
+        engulfing = ta.cdl_pattern(name="engulfing", open_=open_, high=high, low=low, close=close)
+        doji = ta.cdl_pattern(name="doji", open_=open_, high=high, low=low, close=close)
+        shooting_star = ta.cdl_pattern(name="shootingstar", open_=open_, high=high, low=low, close=close)
 
         if hammer is not None and len(hammer) > 0 and float(hammer.iloc[-1]) > 0:
             bullish_score += w
             bullish_count += 1
             reasons.append("Hammer")
-            candle_signal = True
         if engulfing is not None and len(engulfing) > 0:
             eng_val = float(engulfing.iloc[-1])
             if eng_val > 0:
                 bullish_score += w
                 bullish_count += 1
                 reasons.append("Bullish engulfing")
-                candle_signal = True
             elif eng_val < 0:
                 bearish_score += w
                 bearish_count += 1
                 reasons.append("Bearish engulfing")
-                candle_signal = True
+        if shooting_star is not None and len(shooting_star) > 0 and float(shooting_star.iloc[-1]) < 0:
+            bearish_score += w
+            bearish_count += 1
+            reasons.append("Shooting star")
+        if doji is not None and len(doji) > 0 and float(doji.iloc[-1]) != 0:
+            reasons.append("Doji (neutral)")
 
-        if not candle_signal:
-            neutral_count += 1
-
-        # Определяем направление
         if total_weight == 0:
             return None
 
@@ -215,36 +211,20 @@ class IndicatorsAnalyzer(BaseAnalyzer):
         else:
             return None
 
-        # БОНУС ЗА СОГЛАСОВАННОСТЬ
-        # Если несколько индикаторов согласованы с доминирующим направлением,
-        # усиливаем уверенность.
         if agreement_count > 1:
             bonus = 1.0 + self._agreement_bonus_step * (agreement_count - 1)
         else:
             bonus = 1.0
 
-        confidence = base_confidence * bonus
+        confidence = min(base_confidence * bonus, self._max_confidence)
 
-        # Ограничиваем сверху
-        confidence = min(confidence, self._max_confidence)
-
-        logger.debug(
-            "Indicators: base_conf=%.3f, agreement=%d, bonus=%.2f, "
-            "final_conf=%.3f, direction=%s",
-            base_confidence, agreement_count, bonus, confidence, direction.name,
-        )
-
-        # Применяем штраф за сигнал против тренда
         trend_info = "no_filter"
         if self._use_trend_filter and self._trend_filter is not None:
             trend = self._trend_filter.detect(data)
-            multiplier = self._trend_filter.apply_penalty(
-                direction, trend, self._trend_penalty
-            )
+            multiplier = self._trend_filter.apply_penalty(direction, trend, self._trend_penalty)
             confidence *= multiplier
             trend_info = trend.name
 
-        # Фильтр по минимальной уверенности
         if confidence < self._min_confidence:
             return None
 
@@ -259,6 +239,7 @@ class IndicatorsAnalyzer(BaseAnalyzer):
                 "sma20": sma20_val,
                 "sma50": sma50_val,
                 "bb_upper": bb_upper,
+                "bb_middle": bb_middle,
                 "bb_lower": bb_lower,
                 "current_price": current_price,
                 "bullish_score": bullish_norm,

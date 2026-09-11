@@ -1,13 +1,14 @@
-"""Trading Engine: главный класс интеграции."""
+"""Trading Engine с поддержкой профилей инструментов."""
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, date
+from datetime import datetime, timezone
 from typing import List, Optional
 
 import pandas as pd
 
 from src.engine.config import EngineConfig
+from src.engine.symbol_profiles import SymbolProfile
 from src.models import SignalDirection
 from src.signal_intake.intake import SignalIntake
 from src.analyzers.indicators import IndicatorsAnalyzer
@@ -34,48 +35,53 @@ class BarResult:
     bar_index: int = 0
     bar_time: Optional[datetime] = None
     bar_close: float = 0.0
-
-    # Закрытые позиции на этом баре
     closed_positions: List[Position] = field(default_factory=list)
     realized_pnl: float = 0.0
-
-    # Открытая позиция (если была)
     opened_position: Optional[Position] = None
-
-    # Решение Confluence
     decision: Optional[ConfluenceDecision] = None
-
-    # События
     events: List[PositionEvent] = field(default_factory=list)
-
-    # Флаги
     was_blocked_by_guard: bool = False
     guard_reason: str = ""
 
 
 class TradingEngine:
     """
-    Trading Engine: оркестратор всех компонентов.
+    Trading Engine с поддержкой адаптивных параметров.
 
-    На каждом баре выполняет полный цикл:
-    1. Обработка открытых позиций (SL/TP/Timeout)
-    2. Обновление Portfolio State
-    3. Логирование
-    4. Проверка Portfolio Guard
-    5. Сбор сигналов
-    6. Confluence-движок
-    7. Открытие позиции
+    Профиль инструмента применяется автоматически:
+    - Risk per trade
+    - ATR multiplier
+    - ATR period
+    - R:R ratio
+    - Gate mode (через gate_mode_override)
+    - Веса анализаторов (через weights_override)
     """
 
     def __init__(self, config: Optional[EngineConfig] = None):
-        """
-        Args:
-            config: Конфигурация движка
-        """
         self.config = config or EngineConfig()
         self.config.validate()
 
-        # Инициализация компонентов
+        # Получаем профиль для символа
+        self.profile: SymbolProfile = self.config.get_symbol_profile()
+
+        logger.info(
+            "TradingEngine инициализирован: %s %s, equity=%.2f",
+            self.config.symbol, self.config.timeframe,
+            self.config.starting_equity,
+        )
+        logger.info(
+            "Профиль: risk=%.2f%%, atr_mult=%.2f, atr_period=%d, rr=%.1f, "
+            "gate=%s, weights=%s — %s",
+            self.profile.risk_per_trade_pct * 100,
+            self.profile.atr_multiplier,
+            self.profile.atr_period,
+            self.profile.default_rr_ratio,
+            self.profile.gate_mode_override or "default",
+            self.profile.weights_override or "default",
+            self.profile.notes,
+        )
+
+        # Инициализация компонентов с учётом профиля
         self._init_journal()
         self._init_portfolio()
         self._init_position_manager()
@@ -83,24 +89,15 @@ class TradingEngine:
         self._init_intake()
         self._init_confluence()
 
-        # Счётчик баров
         self._bar_counter = 0
-
-        logger.info(
-            "TradingEngine инициализирован: %s %s, equity=%.2f, gate=%s",
-            self.config.symbol, self.config.timeframe,
-            self.config.starting_equity, self.config.gate_mode,
-        )
 
     # ============ Инициализация ============
 
     def _init_journal(self) -> None:
-        """Инициализация Journal."""
         self.journal = Journal(self.config.journal_db_path)
         self.analytics = JournalAnalytics(self.journal.db)
 
     def _init_portfolio(self) -> None:
-        """Инициализация Portfolio Risk Manager."""
         limits = RiskLimits(
             daily_loss_limit_pct=self.config.daily_loss_limit_pct,
             daily_profit_target_pct=self.config.daily_profit_target_pct,
@@ -117,7 +114,6 @@ class TradingEngine:
         )
 
     def _init_position_manager(self) -> None:
-        """Инициализация Position Manager."""
         self.position_manager = PositionManager(
             breakeven_after_tp=self.config.breakeven_after_tp,
             trailing_after_tp=self.config.trailing_after_tp,
@@ -127,16 +123,16 @@ class TradingEngine:
         )
 
     def _init_risk_manager(self) -> None:
-        """Инициализация Risk Manager."""
+        """Risk Manager с параметрами из профиля."""
         self.risk_manager = RiskManager(
-            risk_per_trade_pct=self.config.risk_per_trade_pct,
-            atr_period=self.config.atr_period,
-            atr_multiplier=self.config.atr_multiplier,
-            default_rr_ratio=self.config.default_rr_ratio,
+            risk_per_trade_pct=self.profile.risk_per_trade_pct,
+            atr_period=self.profile.atr_period,
+            atr_multiplier=self.profile.atr_multiplier,
+            default_rr_ratio=self.profile.default_rr_ratio,
+            max_position_pct=self.profile.max_position_pct,
         )
 
     def _init_intake(self) -> None:
-        """Инициализация Signal Intake с анализаторами."""
         self.intake = SignalIntake(timeout=5.0)
 
         if self.config.enable_indicators:
@@ -152,15 +148,32 @@ class TradingEngine:
         )
 
     def _init_confluence(self) -> None:
-        """Инициализация Confluence-движка."""
+        """Confluence с учётом профиля: gate_mode и weights."""
         gate_mode_map = {
             "aggressive": GateMode.AGGRESSIVE,
             "balanced": GateMode.BALANCED,
             "conservative": GateMode.CONSERVATIVE,
         }
-        gate_mode = gate_mode_map.get(self.config.gate_mode, GateMode.BALANCED)
+
+        # Приоритет: gate_mode_override из профиля > config.gate_mode
+        gate_mode_str = self.profile.gate_mode_override or self.config.gate_mode
+        gate_mode = gate_mode_map.get(gate_mode_str, GateMode.BALANCED)
+
         self.confluence = ConfluenceEngine()
+
+        # Применяем weights_override из профиля (если есть)
+        if self.profile.weights_override is not None:
+            self.confluence.set_base_weights(self.profile.weights_override)
+            logger.info(
+                "Применены weights_override из профиля: %s",
+                self.profile.weights_override,
+            )
+
         self.confluence.set_gate_mode(gate_mode)
+        logger.info(
+            "Gate mode: %s (порог %.2f)",
+            gate_mode.value, self.confluence._gate.get_threshold(),
+        )
 
     # ============ Главный цикл ============
 
@@ -170,33 +183,20 @@ class TradingEngine:
         bar_index: int,
         bar_time: Optional[datetime] = None,
     ) -> BarResult:
-        """
-        Обрабатывает один бар.
-
-        Args:
-            data: OHLCV DataFrame (только данные до текущего бара включительно)
-            bar_index: Индекс текущего бара
-            bar_time: Время бара
-
-        Returns:
-            BarResult с результатами обработки
-        """
         self._bar_counter += 1
         result = BarResult(bar_index=bar_index, bar_time=bar_time)
 
-        # Проверяем, что данных достаточно
         if len(data) < 50:
             logger.debug("Недостаточно данных: %d баров", len(data))
             return result
 
-        # Текущий бар
         current_bar = data.iloc[-1]
         bar_high = float(current_bar["high"])
         bar_low = float(current_bar["low"])
         bar_close = float(current_bar["close"])
         result.bar_close = bar_close
 
-        # 1. Обработка открытых позиций (SL/TP/Timeout)
+        # 1. Обработка открытых позиций
         atr = self._calculate_atr(data)
         position_update = self.position_manager.on_bar(
             bar_high=bar_high,
@@ -213,10 +213,10 @@ class TradingEngine:
             result.closed_positions.append(closed_pos)
             result.realized_pnl += closed_pos.realized_pnl
 
-        # 3. Проверка Portfolio Guard
+        # 3. Portfolio Guard
         guard_result = self.portfolio.can_open(
             symbol=self.config.symbol,
-            risk_pct=self.config.risk_per_trade_pct,
+            risk_pct=self.profile.risk_per_trade_pct,
         )
         if not guard_result.allowed:
             result.was_blocked_by_guard = True
@@ -229,11 +229,11 @@ class TradingEngine:
             data, symbol=self.config.symbol, timeframe=self.config.timeframe,
         )
 
-        # 5. Confluence-движок
+        # 5. Confluence
         decision = self.confluence.decide(batch.signals, data)
         result.decision = decision
 
-        # 6. Логирование решения
+        # 6. Логирование
         self.journal.log_decision(
             decision=decision,
             symbol=self.config.symbol,
@@ -241,7 +241,7 @@ class TradingEngine:
             signals_count=batch.count,
         )
 
-        # 7. Открытие позиции (если решение прошло)
+        # 7. Открытие позиции
         if decision.passed and decision.direction != SignalDirection.HOLD:
             opened = self._try_open_position(
                 decision=decision,
@@ -252,7 +252,7 @@ class TradingEngine:
             if opened is not None:
                 result.opened_position = opened
 
-        # 8. Периодический снимок портфеля
+        # 8. Снимок портфеля
         if self._bar_counter % self.config.snapshot_every_n_bars == 0:
             self.journal.log_portfolio_snapshot(self.portfolio.state)
 
@@ -265,8 +265,6 @@ class TradingEngine:
         current_price: float,
         bar_time: datetime,
     ) -> Optional[Position]:
-        """Пытается открыть позицию на основе решения."""
-        # Рассчитываем торговый план
         plan = self.risk_manager.calculate_plan(
             direction=decision.direction,
             entry_price=current_price,
@@ -278,13 +276,11 @@ class TradingEngine:
             logger.warning("Не удалось рассчитать торговый план")
             return None
 
-        # Валидация плана
         is_valid, errors = self.risk_manager.validate_plan(plan)
         if not is_valid:
             logger.warning("Невалидный план: %s", errors)
             return None
 
-        # Открываем позицию
         position = self.position_manager.open_position(
             symbol=self.config.symbol,
             timeframe=self.config.timeframe,
@@ -300,10 +296,7 @@ class TradingEngine:
         if position is None:
             return None
 
-        # Регистрируем в Portfolio
         self.portfolio.register_position_opened(position)
-
-        # Логируем в Journal
         self.journal.log_position_opened(
             position=position,
             regime=decision.regime.value,
@@ -319,11 +312,7 @@ class TradingEngine:
         return position
 
     def _on_position_closed(self, position: Position) -> None:
-        """Обрабатывает закрытие позиции."""
-        # Обновляем Portfolio
         self.portfolio.register_position_closed(position)
-
-        # Логируем в Journal
         self.journal.log_position_closed(position)
 
         logger.info(
@@ -335,15 +324,14 @@ class TradingEngine:
         )
 
     def _calculate_atr(self, data: pd.DataFrame) -> Optional[float]:
-        """Рассчитывает ATR для трейлинг-стопа."""
         import pandas_ta_classic as ta
 
-        if len(data) < self.config.atr_period + 1:
+        if len(data) < self.profile.atr_period + 1:
             return None
 
         atr = ta.atr(
             data["high"], data["low"], data["close"],
-            length=self.config.atr_period,
+            length=self.profile.atr_period,
         )
         if atr is None or len(atr) == 0:
             return None
@@ -352,12 +340,10 @@ class TradingEngine:
     # ============ Управление ============
 
     def start_new_day(self) -> None:
-        """Начинает новый торговый день."""
         self.portfolio.start_new_day()
         self.journal.log_portfolio_snapshot(self.portfolio.state)
 
     def close_all_positions(self, price: float) -> List[Position]:
-        """Закрывает все позиции принудительно."""
         closed = self.position_manager.close_all(
             price, datetime.now(timezone.utc), CloseReason.MANUAL,
         )
@@ -366,7 +352,6 @@ class TradingEngine:
         return closed
 
     def get_stats(self) -> dict:
-        """Возвращает текущую статистику."""
         snapshot = self.portfolio.get_snapshot()
         position_stats = self.position_manager.get_stats()
         trade_stats = self.analytics.get_trade_stats()
@@ -384,9 +369,19 @@ class TradingEngine:
                 "avg_win": trade_stats.avg_win,
                 "avg_loss": trade_stats.avg_loss,
             },
+            "profile": {
+                "symbol": self.config.symbol,
+                "risk_per_trade_pct": self.profile.risk_per_trade_pct,
+                "atr_multiplier": self.profile.atr_multiplier,
+                "atr_period": self.profile.atr_period,
+                "default_rr_ratio": self.profile.default_rr_ratio,
+                "max_position_pct": self.profile.max_position_pct,
+                "gate_mode_override": self.profile.gate_mode_override,
+                "weights_override": self.profile.weights_override,
+                "notes": self.profile.notes,
+            },
         }
 
     def close(self) -> None:
-        """Закрывает ресурсы."""
         self.journal.close()
         logger.info("TradingEngine закрыт")

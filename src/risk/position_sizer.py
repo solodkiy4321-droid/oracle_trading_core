@@ -10,12 +10,12 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PositionSizeResult:
     """Результат расчёта размера позиции."""
-    size: float               # Размер позиции (в единицах актива)
-    risk_amount: float        # Сумма риска в валюте
-    risk_pct: float           # Процент риска
-    stop_distance: float      # Расстояние до стопа
-    position_value: float     # Стоимость позиции
-    leverage: float           # Используемое плечо
+    size: float
+    risk_amount: float
+    risk_pct: float
+    stop_distance: float
+    position_value: float
+    leverage: float
 
 
 class PositionSizer:
@@ -25,11 +25,9 @@ class PositionSizer:
     Формула (классическая fixed-fractional):
     Position Size = (Equity × Risk%) / Stop Distance
 
-    Это стандартный подход в профессиональном риск-менеджменте.
-    Правило 1-2%: никогда не рискуйте более 1-2% капитала на сделку.
+    max_position_pct ограничивает максимальный размер позиции.
     """
 
-    # Предупреждение о высоком плече
     HIGH_LEVERAGE_THRESHOLD = 3.0
 
     def __init__(
@@ -37,11 +35,6 @@ class PositionSizer:
         risk_per_trade_pct: float = 0.01,
         max_position_pct: float = 1.0,
     ):
-        """
-        Args:
-            risk_per_trade_pct: Процент риска на сделку (0.01 = 1%)
-            max_position_pct: Максимальный размер позиции как % от equity
-        """
         if not 0 < risk_per_trade_pct <= 0.1:
             raise ValueError(
                 f"risk_per_trade_pct должен быть в (0, 0.1], "
@@ -57,26 +50,13 @@ class PositionSizer:
         stop_distance: float,
         risk_pct: Optional[float] = None,
     ) -> Optional[PositionSizeResult]:
-        """
-        Рассчитывает размер позиции.
-
-        Args:
-            equity: Текущий баланс счёта
-            entry_price: Цена входа
-            stop_distance: Расстояние от входа до стоп-лосса (в цене)
-            risk_pct: Переопределение процента риска
-
-        Returns:
-            PositionSizeResult или None при ошибке
-        """
+        """Рассчитывает размер позиции."""
         if equity <= 0:
             logger.warning("Equity должна быть > 0, получено %.2f", equity)
             return None
-
         if entry_price <= 0:
             logger.warning("Entry price должна быть > 0, получено %.4f", entry_price)
             return None
-
         if stop_distance <= 0:
             logger.warning(
                 "Stop distance должна быть > 0, получено %.4f", stop_distance
@@ -101,13 +81,11 @@ class PositionSizer:
                 self.max_position_pct,
             )
 
-        # Плечо
         leverage = position_value / equity
 
         if leverage > self.HIGH_LEVERAGE_THRESHOLD:
             logger.warning(
-                "Высокое плечо: %.2fx (порог %.2fx). "
-                "Позиция больше счёта!",
+                "Высокое плечо: %.2fx (порог %.2fx)",
                 leverage, self.HIGH_LEVERAGE_THRESHOLD,
             )
 

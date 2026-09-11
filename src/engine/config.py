@@ -1,7 +1,13 @@
-"""Конфигурация Trading Engine."""
+"""Конфигурация Trading Engine с поддержкой профилей."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
+
+from src.engine.symbol_profiles import (
+    SymbolProfile,
+    SymbolProfileRegistry,
+    create_default_registry,
+)
 
 
 @dataclass
@@ -22,10 +28,10 @@ class EngineConfig:
     enable_support_resistance: bool = True
 
     # Confluence
-    gate_mode: str = "balanced"           # 'aggressive', 'balanced', 'conservative'
+    gate_mode: str = "balanced"
 
-    # Risk Manager
-    risk_per_trade_pct: float = 0.01      # 1% на сделку
+    # Risk Manager (базовые значения — переопределяются профилем)
+    risk_per_trade_pct: float = 0.01
     atr_period: int = 14
     atr_multiplier: float = 1.5
     default_rr_ratio: float = 2.0
@@ -49,16 +55,39 @@ class EngineConfig:
 
     # Journal
     journal_db_path: str = "journal.db"
-    snapshot_every_n_bars: int = 24       # Снимок портфеля раз в 24 бара
+    snapshot_every_n_bars: int = 24
 
-    # Логирование
+    # Logging
     log_level: str = "INFO"
+
+    # Профили инструментов
+    use_symbol_profiles: bool = True
+    symbol_profiles: Optional[SymbolProfileRegistry] = None
+
+    def get_symbol_profile(self) -> SymbolProfile:
+        """Возвращает профиль для текущего символа."""
+        if not self.use_symbol_profiles:
+            return SymbolProfile(
+                risk_per_trade_pct=self.risk_per_trade_pct,
+                atr_multiplier=self.atr_multiplier,
+                atr_period=self.atr_period,
+                default_rr_ratio=self.default_rr_ratio,
+                notes="Профили отключены — используются базовые параметры",
+            )
+
+        registry = self.symbol_profiles
+        if registry is None:
+            registry = create_default_registry()
+            self.symbol_profiles = registry
+
+        return registry.get(self.symbol)
 
     def validate(self) -> None:
         """Проверяет корректность конфигурации."""
         if self.starting_equity <= 0:
             raise ValueError(
-                f"starting_equity должен быть > 0, получено {self.starting_equity}"
+                f"starting_equity должен быть > 0, "
+                f"получено {self.starting_equity}"
             )
         if not 0 < self.risk_per_trade_pct <= 0.05:
             raise ValueError(

@@ -40,7 +40,8 @@ class RiskManager:
     - TakeProfitCalculator: расчёт тейк-профитов
     - PositionSizer: расчёт размера позиции
 
-    Возвращает полный торговый план: entry, SL, TP, размер позиции.
+    Все параметры (risk, ATR multiplier, rr ratio) могут быть
+    переопределены из SymbolProfile.
     """
 
     def __init__(
@@ -50,14 +51,16 @@ class RiskManager:
         atr_multiplier: float = 1.5,
         default_rr_ratio: float = 2.0,
         max_leverage: float = 3.0,
+        max_position_pct: float = 1.0,
     ):
         """
         Args:
-            risk_per_trade_pct: Процент риска на сделку (0.01 = 1%)
+            risk_per_trade_pct: Процент риска на сделку
             atr_period: Период ATR
             atr_multiplier: Множитель ATR для расчёта SL
             default_rr_ratio: Соотношение риск/прибыль по умолчанию
-            max_leverage: Максимальное плечо (для предупреждения)
+            max_leverage: Максимальное плечо
+            max_position_pct: Максимальный размер позиции (доля equity)
         """
         self.stop_loss_calc = StopLossCalculator(
             atr_period=atr_period,
@@ -68,8 +71,10 @@ class RiskManager:
         )
         self.position_sizer = PositionSizer(
             risk_per_trade_pct=risk_per_trade_pct,
+            max_position_pct=max_position_pct,
         )
         self.max_leverage = max_leverage
+        self.default_rr_ratio = default_rr_ratio
 
     def calculate_plan(
         self,
@@ -81,21 +86,7 @@ class RiskManager:
         risk_pct: Optional[float] = None,
         tp_ratios: Optional[List[float]] = None,
     ) -> Optional[TradePlan]:
-        """
-        Рассчитывает полный торговый план.
-
-        Args:
-            direction: Направление сделки (BUY / SELL)
-            entry_price: Цена входа
-            equity: Текущий баланс счёта
-            data: OHLCV DataFrame для расчёта ATR
-            atr_multiplier: Переопределение множителя ATR
-            risk_pct: Переопределение процента риска
-            tp_ratios: Список соотношений R:R для TP
-
-        Returns:
-            TradePlan или None при ошибке
-        """
+        """Рассчитывает полный торговый план."""
         if direction == SignalDirection.HOLD:
             logger.debug("Направление HOLD — план не рассчитывается")
             return None
@@ -148,7 +139,7 @@ class RiskManager:
                 f"от цены входа"
             )
 
-        # 5. Формируем итоговый план
+        # 5. Формируем план
         plan = TradePlan(
             direction=direction,
             entry_price=entry_price,
@@ -181,17 +172,11 @@ class RiskManager:
         return plan
 
     def validate_plan(self, plan: TradePlan) -> tuple:
-        """
-        Валидирует торговый план.
-
-        Returns:
-            (валиден_ли, список_ошибок)
-        """
+        """Валидирует торговый план."""
         errors = []
 
         if plan.entry_price <= 0:
             errors.append("Entry price <= 0")
-
         if plan.stop_loss <= 0:
             errors.append("Stop loss <= 0")
 
@@ -210,7 +195,6 @@ class RiskManager:
 
         if plan.position_size <= 0:
             errors.append("Position size <= 0")
-
         if plan.risk_pct > 0.05:
             errors.append(f"Риск слишком высокий: {plan.risk_pct * 100:.2f}%")
 
