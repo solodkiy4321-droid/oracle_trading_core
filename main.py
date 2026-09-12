@@ -1,7 +1,10 @@
 """Точка входа: бэктест 5 крипто-символов.
 
+Данные загружаются в ГЛАВНОМ процессе и передаются в воркеры.
+Это исключает race condition yfinance при параллельной загрузке.
+
 Timeframe берётся из SymbolProfile:
-- BTC: 2h (long_only)
+- BTC: 2h (long_only=False)
 - ETH, ADA, DOT, ATOM: 1h
 """
 
@@ -13,7 +16,7 @@ from dataclasses import dataclass, asdict
 from datetime import datetime, timezone
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Tuple
 
 import pandas as pd
 
@@ -116,42 +119,22 @@ class BacktestResult:
 
 async def run_backtest_async(
     symbol: str,
-    bars_to_process: int = 10000,
+    data: pd.DataFrame,
+    timeframe: str,
     export_dir: str = "backtest_results",
     starting_equity: float = 10000.0,
-    force_refresh: bool = False,
     gate_mode: str = "aggressive",
 ) -> BacktestResult:
     result = BacktestResult(
         symbol=symbol,
+        timeframe=timeframe,
         starting_equity=starting_equity,
         gate_mode=gate_mode,
     )
     t_start = datetime.now(timezone.utc)
 
-    config = EngineConfig(
-        starting_equity=starting_equity,
-        symbol=symbol,
-        journal_db_path="",
-        gate_mode=gate_mode,
-        snapshot_every_n_bars=999999,
-    )
-
-    profile = config.get_symbol_profile()
-    timeframe = profile.timeframe
-
-    result.timeframe = timeframe
-    result.atr_multiplier = profile.atr_multiplier
-    result.rr_ratio = profile.default_rr_ratio
-    result.filter_chop = profile.filter_chop
-    result.long_only = profile.long_only
-
     print(f"\n{'=' * 70}")
-    print(f"BACKTEST: {symbol} {timeframe} | {bars_to_process} bars")
-    print(
-        f"Profile: atr={profile.atr_multiplier}, rr={profile.default_rr_ratio}, "
-        f"chop={profile.filter_chop}, long_only={profile.long_only}"
-    )
+    print(f"BACKTEST: {symbol} {timeframe} | {len(data)} bars (loaded)")
     print("=" * 70)
 
     export_path = Path(export_dir)
@@ -160,45 +143,12 @@ async def run_backtest_async(
     prefix = f"{symbol.replace('-', '_')}_{timeframe}"
     journal_path = f"{export_dir}/{prefix}_journal.db"
 
-    fetcher = MarketDataFetcher()
-    try:
-        if timeframe == "1h":
-            data = fetcher.fetch(
-                symbol, "1h",
-                limit=bars_to_process + 250,
-                force_refresh=force_refresh,
-            )
-        else:
-            base_limit = bars_to_process * (24 if timeframe == "1d" else
-                                            12 if timeframe == "2h" else
-                                            4 if timeframe == "4h" else 1)
-            base_limit = min(base_limit + 500, 40000)
-            df_1h = fetcher.fetch(
-                symbol, "1h",
-                limit=base_limit,
-                force_refresh=force_refresh,
-            )
-            rule_map = {"2h": "2h", "4h": "4h", "8h": "8h", "1d": "1D"}
-            data = resample_ohlcv(df_1h, rule_map[timeframe])
-            data = data.tail(bars_to_process + 250)
-    except Exception as e:
-        msg = f"Fetch error {symbol}: {e}"
+    if data is None or len(data) < 500:
+        msg = f"Insufficient data: {len(data) if data is not None else 0}"
         print(f"ERROR: {msg}")
         result.error = msg
         result.duration_sec = (datetime.now(timezone.utc) - t_start).total_seconds()
         return result
-
-    print(f"Loaded {len(data)} bars")
-
-    if len(data) < 500:
-        msg = f"Insufficient data: {len(data)} < 500"
-        print(f"ERROR: {msg}")
-        result.error = msg
-        result.duration_sec = (datetime.now(timezone.utc) - t_start).total_seconds()
-        return result
-
-    if len(data) < bars_to_process:
-        bars_to_process = len(data)
 
     config = EngineConfig(
         starting_equity=starting_equity,
@@ -211,8 +161,17 @@ async def run_backtest_async(
 
     engine = TradingEngine(config)
     profile = engine.profile
+    result.atr_multiplier = profile.atr_multiplier
+    result.rr_ratio = profile.default_rr_ratio
+    result.filter_chop = profile.filter_chop
+    result.long_only = profile.long_only
 
-    start_idx = max(250, len(data) - bars_to_process)
+    print(
+        f"Profile: atr={profile.atr_multiplier}, rr={profile.default_rr_ratio}, "
+        f"chop={profile.filter_chop}, long_only={profile.long_only}"
+    )
+
+    start_idx = 250
     processed = 0
     equity_curve: List[float] = []
 
@@ -312,6 +271,7 @@ def run_backtest_worker(args: Dict[str, Any]) -> BacktestResult:
         logging.exception("Worker crash for %s: %s", symbol, e)
         return BacktestResult(
             symbol=symbol,
+            timeframe=args.get("timeframe", ""),
             error=f"Worker crash: {type(e).__name__}: {e}",
         )
 
@@ -410,6 +370,30 @@ def print_summary(results: List[BacktestResult]) -> None:
         print(f"  Overall PnL:     ${total_pnl:+.2f}")
 
 
+def preload_data_for_symbol(symbol: str) -> Tuple[str, pd.DataFrame, str]:
+    """
+    Загружает данные для символа в главном процессе.
+
+    Returns:
+        (symbol, dataframe, timeframe)
+    """
+    config = EngineConfig(symbol=symbol, journal_db_path=":memory:")
+    profile = config.get_symbol_profile()
+    timeframe = profile.timeframe
+
+    fetcher = MarketDataFetcher()
+
+    if timeframe == "1h":
+        data = fetcher.fetch(symbol, "1h", limit=10000 + 250)
+    else:
+        rule_map = {"2h": "2h", "4h": "4h", "8h": "8h", "1d": "1D"}
+        df_1h = fetcher.fetch(symbol, "1h", limit=40000)
+        data = resample_ohlcv(df_1h, rule_map[timeframe])
+        data = data.tail(10000 + 250)
+
+    return symbol, data, timeframe
+
+
 def main():
     symbols = [
         "BTC-USD",
@@ -419,31 +403,48 @@ def main():
         "ATOM-USD",
     ]
 
-    bars_per_symbol = 10000
     starting_equity = 10000.0
     export_dir = "backtest_results"
     gate_mode = "aggressive"
 
-    n_workers = min(len(symbols), max(1, cpu_count() - 1))
-
     print("\n" + "=" * 70)
-    print(
-        f"BACKTEST: {len(symbols)} symbols x {bars_per_symbol} bars "
-        f"({n_workers} workers)"
-    )
+    print(f"BACKTEST: {len(symbols)} symbols")
     print("=" * 70)
 
-    tasks = [
-        {
+    # 1. Загрузка данных в главном процессе
+    print("\nPreloading data in main process...")
+    fetcher = MarketDataFetcher()
+    symbol_data: Dict[str, Tuple[pd.DataFrame, str]] = {}
+
+    for sym in symbols:
+        try:
+            _, df, tf = preload_data_for_symbol(sym)
+            symbol_data[sym] = (df, tf)
+            print(f"  {sym}: {len(df)} bars ({tf})")
+        except Exception as e:
+            print(f"  {sym}: FAILED - {e}")
+
+    if not symbol_data:
+        print("\nNo data. Exit.")
+        return
+
+    # 2. Формируем задачи с данными
+    tasks = []
+    for sym in symbols:
+        if sym not in symbol_data:
+            continue
+        df, tf = symbol_data[sym]
+        tasks.append({
             "symbol": sym,
-            "bars_to_process": bars_per_symbol,
+            "data": df,
+            "timeframe": tf,
             "export_dir": export_dir,
             "starting_equity": starting_equity,
-            "force_refresh": False,
             "gate_mode": gate_mode,
-        }
-        for sym in symbols
-    ]
+        })
+
+    n_workers = min(len(tasks), max(1, cpu_count() - 1))
+    print(f"\nRunning {len(tasks)} tasks with {n_workers} workers...\n")
 
     results: List[BacktestResult] = []
 

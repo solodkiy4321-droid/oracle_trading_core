@@ -17,26 +17,24 @@ class EngineConfig:
     starting_equity: float = 10000.0
     equity_currency: str = "USD"
 
-    symbol: str = "BTC-USD"
+    symbol: str = "ETH-USD"
     timeframe: str = "1h"
 
-    # Анализаторы (4): trend, elliott_wave, volatility, volume
     enable_trend: bool = True
     enable_elliott_wave: bool = True
     enable_volatility: bool = True
     enable_volume: bool = True
 
-    # Отключены (adversarial или убыточные)
     enable_harmonic: bool = False
     enable_support_resistance: bool = False
     enable_momentum: bool = False
     enable_indicators: bool = False
 
-    gate_mode: str = "balanced"
+    gate_mode: str = "aggressive"
 
     risk_per_trade_pct: float = 0.01
     atr_period: int = 14
-    atr_multiplier: float = 1.5
+    atr_multiplier: float = 2.0
     default_rr_ratio: float = 3.0
 
     breakeven_after_tp: int = 1
@@ -45,14 +43,14 @@ class EngineConfig:
     max_position_age_bars: int = 100
     commission_pct: float = 0.001
 
-    daily_loss_limit_pct: float = 0.03
-    daily_profit_target_pct: float = 0.06
-    max_drawdown_pct: float = 0.15
+    daily_loss_limit_pct: float = 0.10
+    daily_profit_target_pct: float = 0.50
+    max_drawdown_pct: float = 0.50
     max_open_positions: int = 5
     max_positions_per_symbol: int = 1
     max_positions_per_group: int = 2
-    pause_after_consecutive_losses: int = 5
-    pause_duration_hours: int = 12
+    pause_after_consecutive_losses: int = 10
+    pause_duration_hours: int = 1
 
     journal_db_path: str = "journal.db"
     snapshot_every_n_bars: int = 24
