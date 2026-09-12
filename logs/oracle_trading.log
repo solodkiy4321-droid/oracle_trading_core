@@ -14559,3 +14559,92 @@ ValueError: Сумма базовых весов должна быть 1.0, по
 2026-09-12 23:12:55 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.0% от цены входа
 2026-09-12 23:12:55 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.5% от цены входа
 2026-09-12 23:13:53 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 12.4% от цены входа
+2026-09-13 00:36:44 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 22.5% от цены входа
+2026-09-13 00:36:46 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.0% от цены входа
+2026-09-13 00:36:47 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.5% от цены входа
+2026-09-13 00:37:44 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 12.4% от цены входа
+2026-09-13 00:40:17 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 12.2% от цены входа
+2026-09-13 00:40:17 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.5% от цены входа
+2026-09-13 00:40:19 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-13 00:40:22 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-13 00:40:58 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 22.5% от цены входа
+2026-09-13 00:41:05 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.0% от цены входа
+2026-09-13 01:34:09 [ERROR] root: Worker crash for ETH-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for BTC-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for ADA-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for DOT-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+
+2026-09-13 01:35:23 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-13 01:35:25 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 12.2% от цены входа
+2026-09-13 01:35:25 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.5% от цены входа
+2026-09-13 01:35:30 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-13 01:36:07 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 22.5% от цены входа
+2026-09-13 01:36:11 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 18.0% от цены входа

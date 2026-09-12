@@ -1,18 +1,19 @@
-"""Финальная walk-forward валидация системы с 1d-фильтром.
+"""Per-symbol оптимизация весов анализаторов.
 
-Прогоняет 5 символов с финальными параметрами на 4 фолдах.
-Проверяет устойчивость: стабильна ли система во времени.
+Для каждого символа перебирает веса 4 анализаторов.
+Цель: найти оптимальное распределение весов для каждого символа.
 
-Использует предзагрузку данных в главном процессе.
+Данные загружаются один раз в главном процессе.
 
 Запуск:
-    python final_walk_forward_v2.py
+    python weights_sweep_per_symbol.py
 """
 
 import asyncio
 import csv
 import math
 from datetime import datetime, timezone
+from itertools import product
 from multiprocessing import Pool, cpu_count
 from pathlib import Path
 from typing import List, Dict, Any, Tuple
@@ -32,41 +33,55 @@ setup_logging(level="ERROR")
 SYMBOLS = ["BTC-USD", "ETH-USD", "ADA-USD", "DOT-USD", "ATOM-USD"]
 BARS_1H = 40000
 WARMUP_BARS = 250
-TEST_BARS = 1500
-N_FOLDS = 4
-
 STARTING_EQUITY = 10000.0
-EXPORT_DIR = "backtest_results/final_walk_forward_v2"
+EXPORT_DIR = "backtest_results/weights_sweep_per_symbol"
 
-FINAL_PARAMS = {
+# Финальные параметры фильтров (не трогаем)
+BASE_PARAMS = {
     "BTC-USD": {
         "timeframe": "2h", "atr": 2.0, "rr": 3.0,
-        "chop": True, "regime_1d": True, "long_only": False,
+        "chop": True, "regime_1d": "baseline", "gate": None,
     },
     "ETH-USD": {
-        "timeframe": "1h", "atr": 3.0, "rr": 2.5,
-        "chop": True, "regime_1d": True, "long_only": False,
+        "timeframe": "1h", "atr": 2.5, "rr": 2.5,
+        "chop": True, "regime_1d": "baseline", "gate": "balanced",
     },
     "ADA-USD": {
         "timeframe": "1h", "atr": 3.0, "rr": 2.5,
-        "chop": True, "regime_1d": True, "long_only": False,
+        "chop": False, "regime_1d": "none", "gate": None,
     },
     "DOT-USD": {
         "timeframe": "1h", "atr": 2.5, "rr": 2.5,
-        "chop": True, "regime_1d": False, "long_only": False,
+        "chop": False, "regime_1d": "none", "gate": None,
     },
     "ATOM-USD": {
-        "timeframe": "1h", "atr": 3.0, "rr": 2.0,
-        "chop": True, "regime_1d": False, "long_only": False,
+        "timeframe": "1h", "atr": 4.0, "rr": 3.5,
+        "chop": True, "regime_1d": "drawdown_10", "gate": "aggressive",
     },
 }
 
-BASE_WEIGHTS = {
-    "trend": 0.35,
-    "elliott_wave": 0.30,
-    "volatility": 0.20,
-    "volume": 0.15,
-}
+# Сетка весов: 4 анализатора, шаг 0.1, сумма 1.0
+# Генерируем все комбинации с шагом 0.1 (сумма = 1.0)
+ANALYZERS = ["trend", "elliott_wave", "volatility", "volume"]
+
+
+def generate_weight_combos(step: float = 0.1) -> List[Dict[str, float]]:
+    """Генерирует все комбинации весов с шагом step, сумма = 1.0."""
+    n = int(round(1.0 / step))
+    combos = []
+    for i in range(0, n + 1):
+        for j in range(0, n + 1 - i):
+            for k in range(0, n + 1 - i - j):
+                l = n - i - j - k
+                combo = {
+                    "trend": round(i * step, 2),
+                    "elliott_wave": round(j * step, 2),
+                    "volatility": round(k * step, 2),
+                    "volume": round(l * step, 2),
+                }
+                if sum(combo.values()) > 0.99:
+                    combos.append(combo)
+    return combos
 
 
 def resample_ohlcv(df: pd.DataFrame, rule: str) -> pd.DataFrame:
@@ -105,23 +120,22 @@ def calculate_max_drawdown(equity_curve: List[float]) -> float:
     return max_dd
 
 
-async def run_fold(
+async def run_single(
     data: pd.DataFrame,
     df_1d: pd.DataFrame,
     symbol: str,
-    fold_id: int,
-    start_idx: int,
-    end_idx: int,
+    weights: Dict[str, float],
     export_dir: str,
 ) -> Dict[str, Any]:
-    params = FINAL_PARAMS[symbol]
+    params = BASE_PARAMS[symbol]
     timeframe = params["timeframe"]
 
     export_path = Path(export_dir)
     export_path.mkdir(parents=True, exist_ok=True)
 
     safe_symbol = symbol.replace("-", "_")
-    db_path = export_path / f"tmp_{safe_symbol}_fold{fold_id}.db"
+    w_key = "_".join(f"{v:.1f}" for v in weights.values())
+    db_path = export_path / f"tmp_{safe_symbol}_{w_key}.db"
 
     registry = SymbolProfileRegistry()
     profile = SymbolProfile(
@@ -132,10 +146,11 @@ async def run_fold(
         atr_period=14,
         default_rr_ratio=params["rr"],
         filter_chop=params["chop"],
-        regime_1d_filter=params["regime_1d"],
-        long_only=params["long_only"],
-        weights_override=dict(BASE_WEIGHTS),
-        notes=f"{symbol} fold {fold_id}",
+        regime_1d_filter_mode=params["regime_1d"],
+        long_only=False,
+        gate_mode_override=params["gate"],
+        weights_override=dict(weights),
+        notes=f"{symbol} weights={weights}",
     )
     registry.register(symbol, profile)
     registry.set_default(profile)
@@ -153,10 +168,12 @@ async def run_fold(
 
     engine = TradingEngine(config, df_1d=df_1d)
 
+    n = len(data)
+    start_idx = WARMUP_BARS
     equity_curve: List[float] = []
 
     try:
-        for i in range(start_idx, end_idx):
+        for i in range(start_idx, n):
             win_start = max(0, i - 500)
             slice_data = data.iloc[win_start: i + 1]
             bar_time = (
@@ -171,7 +188,6 @@ async def run_fold(
             equity_curve.append(snap["current_equity"])
     finally:
         stats = engine.get_stats()
-        blocked_1d = stats.get("blocked_by_1d", 0)
         engine.close()
 
     try:
@@ -192,15 +208,12 @@ async def run_fold(
     sharpe = calculate_sharpe(returns)
     max_dd = calculate_max_drawdown(equity_curve)
 
-    start_date = data.index[start_idx] if start_idx < len(data) else ""
-    end_date = data.index[min(end_idx - 1, len(data) - 1)] if end_idx > 0 else ""
-
     return {
         "symbol": symbol,
-        "fold": fold_id,
-        "timeframe": timeframe,
-        "start_date": str(start_date),
-        "end_date": str(end_date),
+        "w_trend": weights["trend"],
+        "w_elliott": weights["elliott_wave"],
+        "w_volatility": weights["volatility"],
+        "w_volume": weights["volume"],
         "trades": trades["total"],
         "wins": trades["wins"],
         "losses": trades["losses"],
@@ -210,25 +223,22 @@ async def run_fold(
         "total_pnl_pct": portfolio["total_pnl_pct"],
         "sharpe": sharpe,
         "max_dd_pct": max_dd,
-        "blocked_1d": blocked_1d,
         "error": "",
     }
 
 
 def run_worker(args: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        return asyncio.run(run_fold(**args))
+        return asyncio.run(run_single(**args))
     except Exception as e:
         return {
             "symbol": args.get("symbol", "?"),
-            "fold": args.get("fold_id", 0),
-            "timeframe": "?",
-            "start_date": "", "end_date": "",
+            "w_trend": 0.0, "w_elliott": 0.0,
+            "w_volatility": 0.0, "w_volume": 0.0,
             "trades": 0, "wins": 0, "losses": 0,
             "win_rate": 0.0, "profit_factor": 0.0,
             "total_pnl": 0.0, "total_pnl_pct": 0.0,
             "sharpe": 0.0, "max_dd_pct": 0.0,
-            "blocked_1d": 0,
             "error": f"{type(e).__name__}: {e}",
         }
 
@@ -237,10 +247,9 @@ def save_csv(rows: List[Dict[str, Any]], path: Path) -> None:
     if not rows:
         return
     fieldnames = [
-        "symbol", "fold", "timeframe", "start_date", "end_date",
+        "symbol", "w_trend", "w_elliott", "w_volatility", "w_volume",
         "trades", "wins", "losses", "win_rate", "profit_factor",
-        "total_pnl", "total_pnl_pct", "sharpe", "max_dd_pct",
-        "blocked_1d", "error",
+        "total_pnl", "total_pnl_pct", "sharpe", "max_dd_pct", "error",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -252,18 +261,21 @@ def main():
     export_path = Path(EXPORT_DIR)
     export_path.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 140)
-    print("FINAL WALK-FORWARD v2 (with 1d filter)")
+    weight_combos = generate_weight_combos(step=0.1)
+
+    print("=" * 130)
+    print("PER-SYMBOL WEIGHTS SWEEP")
     print(f"Symbols:  {SYMBOLS}")
-    print(f"Folds:    {N_FOLDS}, test {TEST_BARS} bars each")
-    print("=" * 140)
+    print(f"Combos:   {len(weight_combos)} weight distributions (step 0.1)")
+    print(f"Total:    {len(SYMBOLS) * len(weight_combos)} tasks")
+    print("=" * 130)
 
     print("\nPreloading data in main process...")
     fetcher = MarketDataFetcher()
     data_cache: Dict[str, Tuple[pd.DataFrame, pd.DataFrame, str]] = {}
 
     for sym in SYMBOLS:
-        params = FINAL_PARAMS[sym]
+        params = BASE_PARAMS[sym]
         timeframe = params["timeframe"]
         try:
             df_1h = fetcher.fetch(sym, "1h", limit=BARS_1H)
@@ -276,10 +288,7 @@ def main():
                 df = resample_ohlcv(df_1h, rule_map[timeframe])
 
             data_cache[sym] = (df, df_1d, timeframe)
-            print(
-                f"  {sym}: {len(df)} bars ({timeframe}), "
-                f"{len(df_1d)} bars 1d"
-            )
+            print(f"  {sym}: {len(df)} bars ({timeframe})")
         except Exception as e:
             print(f"  {sym}: FAILED - {e}")
 
@@ -292,22 +301,12 @@ def main():
         if sym not in data_cache:
             continue
         df, df_1d, tf = data_cache[sym]
-        n = len(df)
-
-        for fold_id in range(N_FOLDS):
-            test_end = n - (N_FOLDS - 1 - fold_id) * TEST_BARS
-            test_start = test_end - TEST_BARS
-
-            if test_start < WARMUP_BARS or test_end > n:
-                continue
-
+        for w in weight_combos:
             tasks.append({
                 "data": df,
                 "df_1d": df_1d,
                 "symbol": sym,
-                "fold_id": fold_id,
-                "start_idx": test_start,
-                "end_idx": test_end,
+                "weights": w,
                 "export_dir": EXPORT_DIR,
             })
 
@@ -320,129 +319,105 @@ def main():
         for res in pool.imap_unordered(run_worker, tasks):
             results.append(res)
             done += 1
-            if done % 5 == 0 or done == len(tasks):
+            if done % 50 == 0 or done == len(tasks):
                 print(f"  progress: {done}/{len(tasks)}")
 
     valid = [r for r in results if not r.get("error")]
 
-    print("\n" + "=" * 140)
-    print("PER SYMBOL — ALL FOLDS")
-    print("=" * 140)
+    print("\n" + "=" * 130)
+    print("BEST WEIGHTS PER SYMBOL (by PnL)")
+    print("=" * 130)
+    print(
+        f"{'symbol':<10} {'trend':>7} {'elliott':>8} {'volat':>7} {'volume':>7} "
+        f"{'trades':>7} {'WR%':>7} {'PF':>6} {'PnL$':>10} "
+        f"{'Sharpe':>8} {'MaxDD%':>8}"
+    )
+    print("-" * 110)
+
+    best_per_symbol = {}
 
     for sym in SYMBOLS:
         sym_results = [r for r in valid if r["symbol"] == sym]
         if not sym_results:
             continue
-        sym_results.sort(key=lambda r: r["fold"])
 
-        params = FINAL_PARAMS[sym]
+        best = max(sym_results, key=lambda x: x["total_pnl"])
+        best_per_symbol[sym] = best
+
         print(
-            f"\n{sym} ({params['timeframe']}) — "
-            f"atr={params['atr']} rr={params['rr']} "
-            f"1d={'ON' if params['regime_1d'] else 'off'}"
-        )
-        print(
-            f"  {'fold':>5} {'period':>24} {'trades':>7} {'WR%':>7} "
-            f"{'PF':>6} {'PnL$':>10} {'Sharpe':>8} {'MaxDD%':>8} {'Blk1d':>6}"
+            f"{sym:<10} "
+            f"{best['w_trend']:>7.1f} "
+            f"{best['w_elliott']:>8.1f} "
+            f"{best['w_volatility']:>7.1f} "
+            f"{best['w_volume']:>7.1f} "
+            f"{best['trades']:>7} "
+            f"{best['win_rate'] * 100:>7.1f} "
+            f"{best['profit_factor']:>6.2f} "
+            f"{best['total_pnl']:>+10.2f} "
+            f"{best['sharpe']:>+8.3f} "
+            f"{best['max_dd_pct'] * 100:>8.2f}"
         )
 
-        for r in sym_results:
-            period = f"{r['start_date'][:10]}..{r['end_date'][:10]}"
+    print("\n" + "=" * 130)
+    print("BEST WEIGHTS PER SYMBOL (by Sharpe, min 100 trades)")
+    print("=" * 130)
+    print(
+        f"{'symbol':<10} {'trend':>7} {'elliott':>8} {'volat':>7} {'volume':>7} "
+        f"{'trades':>7} {'WR%':>7} {'PF':>6} {'PnL$':>10} "
+        f"{'Sharpe':>8}"
+    )
+    print("-" * 110)
+
+    for sym in SYMBOLS:
+        sym_results = [r for r in valid if r["symbol"] == sym]
+        candidates = [r for r in sym_results if r["trades"] >= 100]
+        if not candidates:
+            continue
+
+        best = max(candidates, key=lambda x: x["sharpe"])
+        print(
+            f"{sym:<10} "
+            f"{best['w_trend']:>7.1f} "
+            f"{best['w_elliott']:>8.1f} "
+            f"{best['w_volatility']:>7.1f} "
+            f"{best['w_volume']:>7.1f} "
+            f"{best['trades']:>7} "
+            f"{best['win_rate'] * 100:>7.1f} "
+            f"{best['profit_factor']:>6.2f} "
+            f"{best['total_pnl']:>+10.2f} "
+            f"{best['sharpe']:>+8.3f}"
+        )
+
+    print("\n" + "=" * 130)
+    print("TOP-5 WEIGHTS FOR EACH SYMBOL (by PnL)")
+    print("=" * 130)
+
+    for sym in SYMBOLS:
+        sym_results = [r for r in valid if r["symbol"] == sym]
+        if not sym_results:
+            continue
+
+        print(f"\n{sym}")
+        print(
+            f"  {'trend':>7} {'elliott':>8} {'volat':>7} {'volume':>7} "
+            f"{'trades':>7} {'WR%':>7} {'PF':>6} {'PnL$':>10} {'Sharpe':>8}"
+        )
+
+        top5 = sorted(sym_results, key=lambda x: x["total_pnl"], reverse=True)[:5]
+        for r in top5:
             print(
-                f"  {r['fold']:>5} {period:>24} "
+                f"  {r['w_trend']:>7.1f} "
+                f"{r['w_elliott']:>8.1f} "
+                f"{r['w_volatility']:>7.1f} "
+                f"{r['w_volume']:>7.1f} "
                 f"{r['trades']:>7} "
                 f"{r['win_rate'] * 100:>7.1f} "
                 f"{r['profit_factor']:>6.2f} "
                 f"{r['total_pnl']:>+10.2f} "
-                f"{r['sharpe']:>+8.3f} "
-                f"{r['max_dd_pct'] * 100:>8.2f} "
-                f"{r['blocked_1d']:>6}"
+                f"{r['sharpe']:>+8.3f}"
             )
 
-        profitable = sum(1 for r in sym_results if r["total_pnl"] > 0)
-        total_pnl = sum(r["total_pnl"] for r in sym_results)
-        avg_sharpe = sum(r["sharpe"] for r in sym_results) / len(sym_results)
-        total_blocked = sum(r["blocked_1d"] for r in sym_results)
-
-        print(
-            f"  {'':>5} {'TOTAL':>24} "
-            f"{'':>7} {'':>7} {'':>6} "
-            f"{total_pnl:>+10.2f} {avg_sharpe:>+8.3f} "
-            f"{'':>8} {total_blocked:>6}"
-        )
-        print(f"  Profitable folds: {profitable}/{len(sym_results)}")
-
-    print("\n" + "=" * 140)
-    print("SUMMARY BY SYMBOL")
-    print("=" * 140)
-    print(
-        f"{'symbol':<12} {'folds':>7} {'prof':>7} "
-        f"{'trades':>7} {'WR%':>7} {'PnL$':>10} "
-        f"{'avg_sharpe':>12} {'avg_maxdd':>10} {'blk_1d':>8}"
-    )
-    print("-" * 100)
-
-    total_pnl_all = 0
-    total_trades_all = 0
-    total_wins_all = 0
-    total_blocked_all = 0
-
-    for sym in SYMBOLS:
-        sym_results = [r for r in valid if r["symbol"] == sym]
-        if not sym_results:
-            continue
-
-        profitable = sum(1 for r in sym_results if r["total_pnl"] > 0)
-        total_pnl = sum(r["total_pnl"] for r in sym_results)
-        total_trades = sum(r["trades"] for r in sym_results)
-        total_wins = sum(r["wins"] for r in sym_results)
-        total_blocked = sum(r["blocked_1d"] for r in sym_results)
-        avg_sharpe = sum(r["sharpe"] for r in sym_results) / len(sym_results)
-        avg_maxdd = sum(r["max_dd_pct"] for r in sym_results) / len(sym_results)
-
-        total_pnl_all += total_pnl
-        total_trades_all += total_trades
-        total_wins_all += total_wins
-        total_blocked_all += total_blocked
-
-        wr = total_wins / total_trades if total_trades > 0 else 0.0
-
-        print(
-            f"{sym:<12} {len(sym_results):>7} {profitable:>7} "
-            f"{total_trades:>7} {wr * 100:>7.1f} "
-            f"{total_pnl:>+10.2f} "
-            f"{avg_sharpe:>+12.3f} "
-            f"{avg_maxdd * 100:>10.2f} "
-            f"{total_blocked:>8}"
-        )
-
-    print("\n" + "=" * 140)
-    print("TOTAL")
-    print("=" * 140)
-    print(f"  Total PnL:    ${total_pnl_all:+.2f}")
-    print(f"  Total trades: {total_trades_all}")
-    if total_trades_all > 0:
-        print(f"  Overall WR:   {total_wins_all / total_trades_all * 100:.1f}%")
-    print(f"  Blocked 1d:   {total_blocked_all}")
-
-    total_folds = len(valid)
-    total_profitable = sum(1 for r in valid if r["total_pnl"] > 0)
-
-    print(f"\n  Profitable folds: {total_profitable}/{total_folds}")
-
-    if total_folds > 0:
-        ratio = total_profitable / total_folds
-        print("\n  VERDICT:")
-        if ratio >= 0.9:
-            print(f"    EXCELLENT: {total_profitable}/{total_folds} folds profitable")
-        elif ratio >= 0.75:
-            print(f"    GOOD: {total_profitable}/{total_folds} folds profitable")
-        elif ratio >= 0.5:
-            print(f"    WEAK: {total_profitable}/{total_folds} folds profitable")
-        else:
-            print(f"    BAD: {total_profitable}/{total_folds} folds profitable")
-
-    csv_path = export_path / "final_walk_forward_v2.csv"
+    csv_path = export_path / "weights_sweep_per_symbol.csv"
     save_csv(results, csv_path)
     print(f"\nResults: {csv_path}")
 

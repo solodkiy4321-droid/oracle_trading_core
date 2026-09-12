@@ -236,3 +236,76 @@ Traceback (most recent call last):
     )
 ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
 2026-09-12 17:44:08 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-13 01:34:09 [ERROR] root: Worker crash for ETH-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for BTC-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for ADA-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+2026-09-13 01:34:09 [ERROR] root: Worker crash for DOT-USD: 'SymbolProfile' object has no attribute 'regime_1d_filter'
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 271, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 166, in run_backtest_async
+    result.regime_1d_filter = profile.regime_1d_filter
+                              ^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'SymbolProfile' object has no attribute 'regime_1d_filter'. Did you mean: 'regime_1d_filter_mode'?
+

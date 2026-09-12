@@ -1,6 +1,7 @@
-"""Точка входа: бэктест 5 крипто-символов с 1d-фильтром.
+"""Точка входа: бэктест 5 крипто-символов.
 
-Данные (1h/2h и 1d) загружаются в главном процессе и передаются в воркеры.
+Использует ВСЕ доступные данные от yfinance (17328 баров 1h).
+Per-symbol фильтры: regime_1d_filter_mode, filter_chop, long_only.
 """
 
 import asyncio
@@ -104,7 +105,7 @@ class BacktestResult:
     atr_multiplier: float = 0.0
     rr_ratio: float = 0.0
     filter_chop: bool = False
-    regime_1d_filter: bool = False
+    regime_1d_filter_mode: str = "none"
     long_only: bool = False
     blocked_by_1d: int = 0
     error: str = ""
@@ -162,13 +163,13 @@ async def run_backtest_async(
     result.atr_multiplier = profile.atr_multiplier
     result.rr_ratio = profile.default_rr_ratio
     result.filter_chop = profile.filter_chop
-    result.regime_1d_filter = profile.regime_1d_filter
+    result.regime_1d_filter_mode = profile.regime_1d_filter_mode
     result.long_only = profile.long_only
 
     print(
         f"Profile: atr={profile.atr_multiplier}, rr={profile.default_rr_ratio}, "
-        f"chop={profile.filter_chop}, 1d={profile.regime_1d_filter}, "
-        f"long_only={profile.long_only}"
+        f"chop={profile.filter_chop}, 1d={profile.regime_1d_filter_mode}, "
+        f"long_only={profile.long_only}, gate={profile.gate_mode_override or 'default'}"
     )
 
     start_idx = 250
@@ -192,7 +193,7 @@ async def run_backtest_async(
             snapshot = engine.portfolio.get_snapshot()
             equity_curve.append(snapshot["current_equity"])
 
-            if processed % 2000 == 0:
+            if processed % 4000 == 0:
                 print(
                     f"  [{processed}] equity=${snapshot['current_equity']:.2f}, "
                     f"trades={snapshot['total_trades']}"
@@ -298,7 +299,7 @@ def save_summary_csv(
         "expectancy", "avg_win", "avg_loss",
         "starting_equity", "final_equity", "duration_sec",
         "gate_mode", "atr_multiplier", "rr_ratio", "filter_chop",
-        "regime_1d_filter", "long_only", "blocked_by_1d", "error",
+        "regime_1d_filter_mode", "long_only", "blocked_by_1d", "error",
     ]
 
     rows = []
@@ -323,9 +324,9 @@ def print_summary(results: List[BacktestResult]) -> None:
     print("=" * 150)
 
     header = (
-        f"{'Symbol':<12} {'TF':>4} {'Trades':>7} {'Win%':>6} {'PF':>6} "
+        f"{'Symbol':<12} {'TF':>4} {'Bars':>7} {'Trades':>7} {'Win%':>6} {'PF':>6} "
         f"{'Sharpe':>7} {'Sortino':>8} {'MaxDD%':>7} "
-        f"{'PnL%':>7} {'PnL$':>10} {'Chop':>5} {'1d':>4} {'Long':>5} "
+        f"{'PnL%':>7} {'PnL$':>10} {'Chop':>5} {'1d':>14} {'Long':>5} "
         f"{'Blk1d':>6} {'Time':>7}"
     )
     print(header)
@@ -336,11 +337,11 @@ def print_summary(results: List[BacktestResult]) -> None:
 
     for r in successful:
         chop_str = "ON" if r.filter_chop else "off"
-        r1d_str = "ON" if r.regime_1d_filter else "off"
         long_str = "ON" if r.long_only else "off"
         print(
             f"{r.symbol:<12} "
             f"{r.timeframe:>4} "
+            f"{r.bars:>7} "
             f"{r.trades:>7} "
             f"{r.win_rate * 100:>6.1f} "
             f"{r.profit_factor:>6.2f} "
@@ -350,7 +351,7 @@ def print_summary(results: List[BacktestResult]) -> None:
             f"{r.total_pnl_pct * 100:>7.2f} "
             f"{r.total_pnl:>+10.2f} "
             f"{chop_str:>5} "
-            f"{r1d_str:>4} "
+            f"{r.regime_1d_filter_mode:>14} "
             f"{long_str:>5} "
             f"{r.blocked_by_1d:>6} "
             f"{r.duration_sec:>6.1f}s"
@@ -379,7 +380,7 @@ def print_summary(results: List[BacktestResult]) -> None:
 
 
 def preload_data(symbol: str) -> Tuple[str, pd.DataFrame, pd.DataFrame, str]:
-    """Загружает 1h/2h и 1d данные для символа."""
+    """Загружает ВСЕ доступные данные (17328 баров 1h)."""
     config = EngineConfig(symbol=symbol, journal_db_path=":memory:")
     profile = config.get_symbol_profile()
     timeframe = profile.timeframe
@@ -389,11 +390,10 @@ def preload_data(symbol: str) -> Tuple[str, pd.DataFrame, pd.DataFrame, str]:
     df_1d = resample_ohlcv(df_1h, "1D")
 
     if timeframe == "1h":
-        df = df_1h.tail(10000 + 250)
+        df = df_1h
     else:
         rule_map = {"2h": "2h", "4h": "4h", "8h": "8h", "1d": "1D"}
         df = resample_ohlcv(df_1h, rule_map[timeframe])
-        df = df.tail(10000 + 250)
 
     return symbol, df, df_1d, timeframe
 
@@ -412,7 +412,8 @@ def main():
     gate_mode = "aggressive"
 
     print("\n" + "=" * 70)
-    print(f"BACKTEST: {len(symbols)} symbols with 1d filter")
+    print(f"BACKTEST: {len(symbols)} symbols with per-symbol filters")
+    print(f"Using ALL available data (17328 bars 1h)")
     print("=" * 70)
 
     print("\nPreloading data in main process...")

@@ -1,9 +1,9 @@
 {
   "symbol": "DOT-USD",
   "timeframe": "1h",
-  "fetched_at": 1789242753.9116392,
-  "fetched_at_iso": "2026-09-12T19:52:33.911639+00:00",
-  "rows": 17326,
+  "fetched_at": 1789248986.1316235,
+  "fetched_at_iso": "2026-09-12T21:36:26.131624+00:00",
+  "rows": 17328,
   "source": "yfinance",
   "period": "730d",
   "interval": "1h"

@@ -1,4 +1,4 @@
-"""Модель одной торговой позиции (упрощённая: один TP)."""
+"""Модель одной торговой позиции (с комиссией)."""
 
 import logging
 from dataclasses import dataclass, field
@@ -52,6 +52,8 @@ class Position:
     take_profits: List[float]
     tp_ratios: List[float]
     tp_percentages: List[float]
+
+    commission_pct: float = 0.001
 
     status: PositionStatus = PositionStatus.OPEN
     current_size: float = 0.0
@@ -114,10 +116,22 @@ class Position:
         return hit
 
     def calculate_pnl(self, close_price: float, size: float) -> float:
+        """
+        Рассчитывает P&L с учётом комиссии.
+
+        Комиссия берётся дважды:
+        - на входе (entry_price * size * commission)
+        - на выходе (close_price * size * commission)
+        """
         if self.direction == SignalDirection.BUY:
-            return (close_price - self.entry_price) * size
+            gross = (close_price - self.entry_price) * size
         else:
-            return (self.entry_price - close_price) * size
+            gross = (self.entry_price - close_price) * size
+
+        entry_commission = self.entry_price * size * self.commission_pct
+        exit_commission = close_price * size * self.commission_pct
+
+        return gross - entry_commission - exit_commission
 
     def close_partial(
         self,
@@ -157,7 +171,7 @@ class Position:
         else:
             self.status = PositionStatus.PARTIALLY_CLOSED
 
-        logger.info(
+        logger.debug(
             "Частичное закрытие позиции %s: TP%d, size=%.6f, pnl=%.2f, "
             "осталось=%.6f",
             self.id, tp_level, size_to_close, pnl, self.current_size,
@@ -180,7 +194,7 @@ class Position:
         self.close_price = price
         self.close_reason = reason
 
-        logger.info(
+        logger.debug(
             "Полное закрытие позиции %s: reason=%s, price=%.4f, pnl=%.2f",
             self.id, reason.value, price, pnl,
         )
@@ -192,18 +206,10 @@ class Position:
             new_sl = self.entry_price * (1 + commission_pct)
             if new_sl > self.stop_loss:
                 self.stop_loss = new_sl
-                logger.info(
-                    "Позиция %s: SL переведён в безубыток (%.4f)",
-                    self.id, new_sl,
-                )
         else:
             new_sl = self.entry_price * (1 - commission_pct)
             if new_sl < self.stop_loss:
                 self.stop_loss = new_sl
-                logger.info(
-                    "Позиция %s: SL переведён в безубыток (%.4f)",
-                    self.id, new_sl,
-                )
 
     def update_trailing_stop(self, new_sl: float) -> None:
         if self.direction == SignalDirection.BUY:

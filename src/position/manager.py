@@ -1,9 +1,9 @@
-"""Position Manager: управление открытыми позициями (один TP)."""
+"""Position Manager: управление позициями (с комиссией)."""
 
 import logging
 import uuid
 from dataclasses import dataclass, field
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 from src.models import SignalDirection
@@ -94,6 +94,7 @@ class PositionManager:
             take_profits=list(plan.take_profits),
             tp_ratios=tp_ratios,
             tp_percentages=tp_percentages,
+            commission_pct=self._commission_pct,
             risk_amount=plan.risk_amount,
             risk_pct=plan.risk_pct,
             metadata=merged_metadata,
@@ -114,16 +115,18 @@ class PositionManager:
                 "take_profits": position.take_profits,
                 "risk_pct": position.risk_pct,
                 "opened_bar_index": self._bar_counter,
+                "commission_pct": self._commission_pct,
             },
         )
 
         logger.info(
             "Открыта позиция %s: %s %s, entry=%.4f, SL=%.4f, TP=%.4f, "
-            "size=%.6f, opened_bar=%d",
+            "size=%.6f, commission=%.4f, opened_bar=%d",
             position.id, symbol, direction.name,
             position.entry_price, position.stop_loss,
             position.take_profits[0] if position.take_profits else 0.0,
-            position.initial_size, self._bar_counter,
+            position.initial_size, self._commission_pct,
+            self._bar_counter,
         )
 
         self._last_event = event

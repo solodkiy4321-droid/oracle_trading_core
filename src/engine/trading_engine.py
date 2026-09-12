@@ -1,4 +1,11 @@
-"""Trading Engine: 4 анализатора + CHOP + long_only + 1d regime filter."""
+"""Trading Engine: 4 анализатора + CHOP + long_only + per-symbol 1d режим.
+
+Поддерживаемые режимы 1d-фильтра:
+- "none":         без фильтра
+- "baseline":     RegimeDetector (SMA200 + ADX)
+- "drawdown_10":  цена упала >10% за 30 дней -> BEAR
+- "sma200_only":  цена vs SMA200
+"""
 
 import logging
 from dataclasses import dataclass, field
@@ -6,6 +13,7 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 import pandas as pd
+import pandas_ta_classic as ta
 
 from src.engine.config import EngineConfig
 from src.engine.symbol_profiles import SymbolProfile
@@ -63,11 +71,11 @@ class TradingEngine:
 
         logger.info(
             "TradingEngine: %s %s, equity=%.2f, "
-            "filter_chop=%s, long_only=%s, regime_1d_filter=%s, df_1d=%s",
+            "filter_chop=%s, long_only=%s, regime_1d_mode=%s, df_1d=%s",
             self.config.symbol, self._timeframe,
             self.config.starting_equity,
             self.profile.filter_chop, self.profile.long_only,
-            self.profile.regime_1d_filter,
+            self.profile.regime_1d_filter_mode,
             len(df_1d) if df_1d is not None else 0,
         )
         self._init_journal()
@@ -159,7 +167,20 @@ class TradingEngine:
         self.regime_detector = RegimeDetector()
 
     def _get_regime_1d(self, current_time) -> MarketRegime:
-        """Определяет режим 1d на момент current_time."""
+        """
+        Определяет режим 1d с учётом per-symbol режима.
+
+        Режимы:
+        - "none":         без фильтра -> CHOP
+        - "baseline":     RegimeDetector (SMA200 + ADX)
+        - "drawdown_10":  цена упала >10% за 30 дней -> BEAR
+        - "sma200_only":  цена vs SMA200
+        """
+        mode = self.profile.regime_1d_filter_mode
+
+        if mode == "none":
+            return MarketRegime.CHOP
+
         if self._df_1d is None or current_time is None:
             return MarketRegime.CHOP
 
@@ -171,8 +192,39 @@ class TradingEngine:
         if len(available) < 200:
             return MarketRegime.CHOP
 
-        window = available.iloc[-300:]
-        return self._regime_1d_detector.detect(window)
+        if mode == "baseline":
+            window = available.iloc[-300:]
+            return self._regime_1d_detector.detect(window)
+
+        current_price = float(available["close"].iloc[-1])
+
+        if mode == "sma200_only":
+            sma = ta.sma(available["close"], length=200)
+            if sma is None or len(sma) == 0:
+                return MarketRegime.CHOP
+            sma_val = float(sma.iloc[-1])
+            if sma_val <= 0:
+                return MarketRegime.CHOP
+            distance = (current_price - sma_val) / sma_val
+            if abs(distance) < 0.02:
+                return MarketRegime.CHOP
+            return MarketRegime.BULL if distance > 0 else MarketRegime.BEAR
+
+        if mode == "drawdown_10":
+            lookback = min(30, len(available))
+            if lookback < 5:
+                return MarketRegime.CHOP
+            past_price = float(available["close"].iloc[-lookback])
+            if past_price <= 0:
+                return MarketRegime.CHOP
+            drawdown = (current_price - past_price) / past_price
+            if drawdown < -0.10:
+                return MarketRegime.BEAR
+            if drawdown > 0.05:
+                return MarketRegime.BULL
+            return MarketRegime.CHOP
+
+        return MarketRegime.CHOP
 
     async def on_bar(self, data, bar_index, bar_time=None):
         self._bar_counter += 1
@@ -234,7 +286,7 @@ class TradingEngine:
                 result.was_blocked_by_long_only = True
                 return result
 
-            if self.profile.regime_1d_filter:
+            if self.profile.regime_1d_filter_mode != "none":
                 regime_1d = self._get_regime_1d(bar_time)
                 if (regime_1d == MarketRegime.BEAR
                         and decision.direction == SignalDirection.BUY):
@@ -296,7 +348,6 @@ class TradingEngine:
         self.journal.log_position_closed(position)
 
     def _calculate_atr(self, data):
-        import pandas_ta_classic as ta
         if len(data) < self.profile.atr_period + 1:
             return None
         atr = ta.atr(
@@ -343,7 +394,7 @@ class TradingEngine:
                 "atr_multiplier": self.profile.atr_multiplier,
                 "default_rr_ratio": self.profile.default_rr_ratio,
                 "filter_chop": self.profile.filter_chop,
-                "regime_1d_filter": self.profile.regime_1d_filter,
+                "regime_1d_filter_mode": self.profile.regime_1d_filter_mode,
                 "long_only": self.profile.long_only,
                 "weights_override": self.profile.weights_override,
                 "notes": self.profile.notes,
