@@ -1,4 +1,4 @@
-"""Финальная walk-forward валидация системы.
+"""Финальная walk-forward валидация системы с 1d-фильтром.
 
 Прогоняет 5 символов с финальными параметрами на 4 фолдах.
 Проверяет устойчивость: стабильна ли система во времени.
@@ -6,7 +6,7 @@
 Использует предзагрузку данных в главном процессе.
 
 Запуск:
-    python final_walk_forward.py
+    python final_walk_forward_v2.py
 """
 
 import asyncio
@@ -36,29 +36,28 @@ TEST_BARS = 1500
 N_FOLDS = 4
 
 STARTING_EQUITY = 10000.0
-EXPORT_DIR = "backtest_results/final_walk_forward"
+EXPORT_DIR = "backtest_results/final_walk_forward_v2"
 
-# Финальные параметры из tuning
 FINAL_PARAMS = {
     "BTC-USD": {
-        "timeframe": "2h",
-        "atr": 2.0, "rr": 3.0, "chop": True, "long_only": False,
+        "timeframe": "2h", "atr": 2.0, "rr": 3.0,
+        "chop": True, "regime_1d": True, "long_only": False,
     },
     "ETH-USD": {
-        "timeframe": "1h",
-        "atr": 3.0, "rr": 2.5, "chop": True, "long_only": False,
+        "timeframe": "1h", "atr": 3.0, "rr": 2.5,
+        "chop": True, "regime_1d": True, "long_only": False,
     },
     "ADA-USD": {
-        "timeframe": "1h",
-        "atr": 3.0, "rr": 2.5, "chop": True, "long_only": False,
+        "timeframe": "1h", "atr": 3.0, "rr": 2.5,
+        "chop": True, "regime_1d": True, "long_only": False,
     },
     "DOT-USD": {
-        "timeframe": "1h",
-        "atr": 2.5, "rr": 2.5, "chop": True, "long_only": False,
+        "timeframe": "1h", "atr": 2.5, "rr": 2.5,
+        "chop": True, "regime_1d": False, "long_only": False,
     },
     "ATOM-USD": {
-        "timeframe": "1h",
-        "atr": 3.0, "rr": 2.0, "chop": True, "long_only": False,
+        "timeframe": "1h", "atr": 3.0, "rr": 2.0,
+        "chop": True, "regime_1d": False, "long_only": False,
     },
 }
 
@@ -108,6 +107,7 @@ def calculate_max_drawdown(equity_curve: List[float]) -> float:
 
 async def run_fold(
     data: pd.DataFrame,
+    df_1d: pd.DataFrame,
     symbol: str,
     fold_id: int,
     start_idx: int,
@@ -132,6 +132,7 @@ async def run_fold(
         atr_period=14,
         default_rr_ratio=params["rr"],
         filter_chop=params["chop"],
+        regime_1d_filter=params["regime_1d"],
         long_only=params["long_only"],
         weights_override=dict(BASE_WEIGHTS),
         notes=f"{symbol} fold {fold_id}",
@@ -150,7 +151,7 @@ async def run_fold(
         symbol_profiles=registry,
     )
 
-    engine = TradingEngine(config)
+    engine = TradingEngine(config, df_1d=df_1d)
 
     equity_curve: List[float] = []
 
@@ -170,6 +171,7 @@ async def run_fold(
             equity_curve.append(snap["current_equity"])
     finally:
         stats = engine.get_stats()
+        blocked_1d = stats.get("blocked_by_1d", 0)
         engine.close()
 
     try:
@@ -208,6 +210,7 @@ async def run_fold(
         "total_pnl_pct": portfolio["total_pnl_pct"],
         "sharpe": sharpe,
         "max_dd_pct": max_dd,
+        "blocked_1d": blocked_1d,
         "error": "",
     }
 
@@ -225,6 +228,7 @@ def run_worker(args: Dict[str, Any]) -> Dict[str, Any]:
             "win_rate": 0.0, "profit_factor": 0.0,
             "total_pnl": 0.0, "total_pnl_pct": 0.0,
             "sharpe": 0.0, "max_dd_pct": 0.0,
+            "blocked_1d": 0,
             "error": f"{type(e).__name__}: {e}",
         }
 
@@ -235,7 +239,8 @@ def save_csv(rows: List[Dict[str, Any]], path: Path) -> None:
     fieldnames = [
         "symbol", "fold", "timeframe", "start_date", "end_date",
         "trades", "wins", "losses", "win_rate", "profit_factor",
-        "total_pnl", "total_pnl_pct", "sharpe", "max_dd_pct", "error",
+        "total_pnl", "total_pnl_pct", "sharpe", "max_dd_pct",
+        "blocked_1d", "error",
     ]
     with open(path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction="ignore")
@@ -247,29 +252,34 @@ def main():
     export_path = Path(EXPORT_DIR)
     export_path.mkdir(parents=True, exist_ok=True)
 
-    print("=" * 130)
-    print("FINAL WALK-FORWARD VALIDATION")
+    print("=" * 140)
+    print("FINAL WALK-FORWARD v2 (with 1d filter)")
     print(f"Symbols:  {SYMBOLS}")
     print(f"Folds:    {N_FOLDS}, test {TEST_BARS} bars each")
-    print("=" * 130)
+    print("=" * 140)
 
     print("\nPreloading data in main process...")
     fetcher = MarketDataFetcher()
-    data_cache: Dict[str, Tuple[pd.DataFrame, str]] = {}
+    data_cache: Dict[str, Tuple[pd.DataFrame, pd.DataFrame, str]] = {}
 
     for sym in SYMBOLS:
         params = FINAL_PARAMS[sym]
         timeframe = params["timeframe"]
         try:
+            df_1h = fetcher.fetch(sym, "1h", limit=BARS_1H)
+            df_1d = resample_ohlcv(df_1h, "1D")
+
             if timeframe == "1h":
-                df = fetcher.fetch(sym, "1h", limit=BARS_1H)
+                df = df_1h
             else:
-                df_1h = fetcher.fetch(sym, "1h", limit=BARS_1H)
                 rule_map = {"2h": "2h", "4h": "4h", "8h": "8h", "1d": "1D"}
                 df = resample_ohlcv(df_1h, rule_map[timeframe])
 
-            data_cache[sym] = (df, timeframe)
-            print(f"  {sym}: {len(df)} bars ({timeframe})")
+            data_cache[sym] = (df, df_1d, timeframe)
+            print(
+                f"  {sym}: {len(df)} bars ({timeframe}), "
+                f"{len(df_1d)} bars 1d"
+            )
         except Exception as e:
             print(f"  {sym}: FAILED - {e}")
 
@@ -281,7 +291,7 @@ def main():
     for sym in SYMBOLS:
         if sym not in data_cache:
             continue
-        df, tf = data_cache[sym]
+        df, df_1d, tf = data_cache[sym]
         n = len(df)
 
         for fold_id in range(N_FOLDS):
@@ -293,6 +303,7 @@ def main():
 
             tasks.append({
                 "data": df,
+                "df_1d": df_1d,
                 "symbol": sym,
                 "fold_id": fold_id,
                 "start_idx": test_start,
@@ -314,11 +325,9 @@ def main():
 
     valid = [r for r in results if not r.get("error")]
 
-    print("\n" + "=" * 130)
+    print("\n" + "=" * 140)
     print("PER SYMBOL — ALL FOLDS")
-    print("=" * 130)
-
-    symbol_order = {sym: i for i, sym in enumerate(SYMBOLS)}
+    print("=" * 140)
 
     for sym in SYMBOLS:
         sym_results = [r for r in valid if r["symbol"] == sym]
@@ -326,10 +335,15 @@ def main():
             continue
         sym_results.sort(key=lambda r: r["fold"])
 
-        print(f"\n{sym} ({FINAL_PARAMS[sym]['timeframe']})")
+        params = FINAL_PARAMS[sym]
+        print(
+            f"\n{sym} ({params['timeframe']}) — "
+            f"atr={params['atr']} rr={params['rr']} "
+            f"1d={'ON' if params['regime_1d'] else 'off'}"
+        )
         print(
             f"  {'fold':>5} {'period':>24} {'trades':>7} {'WR%':>7} "
-            f"{'PF':>6} {'PnL$':>10} {'Sharpe':>8} {'MaxDD%':>8}"
+            f"{'PF':>6} {'PnL$':>10} {'Sharpe':>8} {'MaxDD%':>8} {'Blk1d':>6}"
         )
 
         for r in sym_results:
@@ -341,33 +355,37 @@ def main():
                 f"{r['profit_factor']:>6.2f} "
                 f"{r['total_pnl']:>+10.2f} "
                 f"{r['sharpe']:>+8.3f} "
-                f"{r['max_dd_pct'] * 100:>8.2f}"
+                f"{r['max_dd_pct'] * 100:>8.2f} "
+                f"{r['blocked_1d']:>6}"
             )
 
         profitable = sum(1 for r in sym_results if r["total_pnl"] > 0)
         total_pnl = sum(r["total_pnl"] for r in sym_results)
         avg_sharpe = sum(r["sharpe"] for r in sym_results) / len(sym_results)
+        total_blocked = sum(r["blocked_1d"] for r in sym_results)
 
         print(
             f"  {'':>5} {'TOTAL':>24} "
             f"{'':>7} {'':>7} {'':>6} "
-            f"{total_pnl:>+10.2f} {avg_sharpe:>+8.3f}"
+            f"{total_pnl:>+10.2f} {avg_sharpe:>+8.3f} "
+            f"{'':>8} {total_blocked:>6}"
         )
         print(f"  Profitable folds: {profitable}/{len(sym_results)}")
 
-    print("\n" + "=" * 130)
+    print("\n" + "=" * 140)
     print("SUMMARY BY SYMBOL")
-    print("=" * 130)
+    print("=" * 140)
     print(
         f"{'symbol':<12} {'folds':>7} {'prof':>7} "
         f"{'trades':>7} {'WR%':>7} {'PnL$':>10} "
-        f"{'avg_sharpe':>12} {'avg_maxdd':>10}"
+        f"{'avg_sharpe':>12} {'avg_maxdd':>10} {'blk_1d':>8}"
     )
-    print("-" * 90)
+    print("-" * 100)
 
     total_pnl_all = 0
     total_trades_all = 0
     total_wins_all = 0
+    total_blocked_all = 0
 
     for sym in SYMBOLS:
         sym_results = [r for r in valid if r["symbol"] == sym]
@@ -378,12 +396,14 @@ def main():
         total_pnl = sum(r["total_pnl"] for r in sym_results)
         total_trades = sum(r["trades"] for r in sym_results)
         total_wins = sum(r["wins"] for r in sym_results)
+        total_blocked = sum(r["blocked_1d"] for r in sym_results)
         avg_sharpe = sum(r["sharpe"] for r in sym_results) / len(sym_results)
         avg_maxdd = sum(r["max_dd_pct"] for r in sym_results) / len(sym_results)
 
         total_pnl_all += total_pnl
         total_trades_all += total_trades
         total_wins_all += total_wins
+        total_blocked_all += total_blocked
 
         wr = total_wins / total_trades if total_trades > 0 else 0.0
 
@@ -392,24 +412,21 @@ def main():
             f"{total_trades:>7} {wr * 100:>7.1f} "
             f"{total_pnl:>+10.2f} "
             f"{avg_sharpe:>+12.3f} "
-            f"{avg_maxdd * 100:>10.2f}"
+            f"{avg_maxdd * 100:>10.2f} "
+            f"{total_blocked:>8}"
         )
 
-    print("\n" + "=" * 130)
+    print("\n" + "=" * 140)
     print("TOTAL")
-    print("=" * 130)
+    print("=" * 140)
     print(f"  Total PnL:    ${total_pnl_all:+.2f}")
     print(f"  Total trades: {total_trades_all}")
     if total_trades_all > 0:
         print(f"  Overall WR:   {total_wins_all / total_trades_all * 100:.1f}%")
+    print(f"  Blocked 1d:   {total_blocked_all}")
 
-    total_folds = sum(
-        1 for sym in SYMBOLS
-        for r in valid if r["symbol"] == sym
-    )
-    total_profitable = sum(
-        1 for r in valid if r["total_pnl"] > 0
-    )
+    total_folds = len(valid)
+    total_profitable = sum(1 for r in valid if r["total_pnl"] > 0)
 
     print(f"\n  Profitable folds: {total_profitable}/{total_folds}")
 
@@ -425,7 +442,7 @@ def main():
         else:
             print(f"    BAD: {total_profitable}/{total_folds} folds profitable")
 
-    csv_path = export_path / "final_walk_forward.csv"
+    csv_path = export_path / "final_walk_forward_v2.csv"
     save_csv(results, csv_path)
     print(f"\nResults: {csv_path}")
 

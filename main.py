@@ -1,11 +1,6 @@
-"""Точка входа: бэктест 5 крипто-символов.
+"""Точка входа: бэктест 5 крипто-символов с 1d-фильтром.
 
-Данные загружаются в ГЛАВНОМ процессе и передаются в воркеры.
-Это исключает race condition yfinance при параллельной загрузке.
-
-Timeframe берётся из SymbolProfile:
-- BTC: 2h (long_only=False)
-- ETH, ADA, DOT, ATOM: 1h
+Данные (1h/2h и 1d) загружаются в главном процессе и передаются в воркеры.
 """
 
 import asyncio
@@ -109,7 +104,9 @@ class BacktestResult:
     atr_multiplier: float = 0.0
     rr_ratio: float = 0.0
     filter_chop: bool = False
+    regime_1d_filter: bool = False
     long_only: bool = False
+    blocked_by_1d: int = 0
     error: str = ""
 
     @property
@@ -120,6 +117,7 @@ class BacktestResult:
 async def run_backtest_async(
     symbol: str,
     data: pd.DataFrame,
+    df_1d: pd.DataFrame,
     timeframe: str,
     export_dir: str = "backtest_results",
     starting_equity: float = 10000.0,
@@ -159,16 +157,18 @@ async def run_backtest_async(
         snapshot_every_n_bars=999999,
     )
 
-    engine = TradingEngine(config)
+    engine = TradingEngine(config, df_1d=df_1d)
     profile = engine.profile
     result.atr_multiplier = profile.atr_multiplier
     result.rr_ratio = profile.default_rr_ratio
     result.filter_chop = profile.filter_chop
+    result.regime_1d_filter = profile.regime_1d_filter
     result.long_only = profile.long_only
 
     print(
         f"Profile: atr={profile.atr_multiplier}, rr={profile.default_rr_ratio}, "
-        f"chop={profile.filter_chop}, long_only={profile.long_only}"
+        f"chop={profile.filter_chop}, 1d={profile.regime_1d_filter}, "
+        f"long_only={profile.long_only}"
     )
 
     start_idx = 250
@@ -210,6 +210,7 @@ async def run_backtest_async(
         stats = engine.get_stats()
         portfolio = stats["portfolio"]
         trades = stats["trades"]
+        result.blocked_by_1d = stats.get("blocked_by_1d", 0)
 
         returns = []
         for i in range(1, len(equity_curve)):
@@ -249,7 +250,8 @@ async def run_backtest_async(
         print(
             f"  Result: {result.trades} trades, "
             f"WR {result.win_rate * 100:.1f}%, "
-            f"PnL ${result.total_pnl:+.2f}"
+            f"PnL ${result.total_pnl:+.2f}, "
+            f"blocked_1d={result.blocked_by_1d}"
         )
     except Exception as e:
         msg = f"Stats error {symbol}: {e}"
@@ -296,7 +298,7 @@ def save_summary_csv(
         "expectancy", "avg_win", "avg_loss",
         "starting_equity", "final_equity", "duration_sec",
         "gate_mode", "atr_multiplier", "rr_ratio", "filter_chop",
-        "long_only", "error",
+        "regime_1d_filter", "long_only", "blocked_by_1d", "error",
     ]
 
     rows = []
@@ -316,14 +318,15 @@ def save_summary_csv(
 
 
 def print_summary(results: List[BacktestResult]) -> None:
-    print("\n\n" + "=" * 140)
+    print("\n\n" + "=" * 150)
     print("SUMMARY")
-    print("=" * 140)
+    print("=" * 150)
 
     header = (
         f"{'Symbol':<12} {'TF':>4} {'Trades':>7} {'Win%':>6} {'PF':>6} "
         f"{'Sharpe':>7} {'Sortino':>8} {'MaxDD%':>7} "
-        f"{'PnL%':>7} {'PnL$':>10} {'Chop':>6} {'Long':>6} {'Time':>7}"
+        f"{'PnL%':>7} {'PnL$':>10} {'Chop':>5} {'1d':>4} {'Long':>5} "
+        f"{'Blk1d':>6} {'Time':>7}"
     )
     print(header)
     print("-" * len(header))
@@ -333,6 +336,7 @@ def print_summary(results: List[BacktestResult]) -> None:
 
     for r in successful:
         chop_str = "ON" if r.filter_chop else "off"
+        r1d_str = "ON" if r.regime_1d_filter else "off"
         long_str = "ON" if r.long_only else "off"
         print(
             f"{r.symbol:<12} "
@@ -345,8 +349,10 @@ def print_summary(results: List[BacktestResult]) -> None:
             f"{r.max_dd_pct * 100:>7.2f} "
             f"{r.total_pnl_pct * 100:>7.2f} "
             f"{r.total_pnl:>+10.2f} "
-            f"{chop_str:>6} "
-            f"{long_str:>6} "
+            f"{chop_str:>5} "
+            f"{r1d_str:>4} "
+            f"{long_str:>5} "
+            f"{r.blocked_by_1d:>6} "
             f"{r.duration_sec:>6.1f}s"
         )
 
@@ -360,6 +366,7 @@ def print_summary(results: List[BacktestResult]) -> None:
         total_wins = sum(r.wins for r in successful)
         total_losses = sum(r.losses for r in successful)
         total_pnl = sum(r.total_pnl for r in successful)
+        total_blocked = sum(r.blocked_by_1d for r in successful)
 
         print("\n" + "-" * 80)
         print("TOTAL:")
@@ -368,30 +375,27 @@ def print_summary(results: List[BacktestResult]) -> None:
         if total_trades > 0:
             print(f"  Overall WR:      {total_wins / total_trades * 100:.1f}%")
         print(f"  Overall PnL:     ${total_pnl:+.2f}")
+        print(f"  Blocked by 1d:   {total_blocked}")
 
 
-def preload_data_for_symbol(symbol: str) -> Tuple[str, pd.DataFrame, str]:
-    """
-    Загружает данные для символа в главном процессе.
-
-    Returns:
-        (symbol, dataframe, timeframe)
-    """
+def preload_data(symbol: str) -> Tuple[str, pd.DataFrame, pd.DataFrame, str]:
+    """Загружает 1h/2h и 1d данные для символа."""
     config = EngineConfig(symbol=symbol, journal_db_path=":memory:")
     profile = config.get_symbol_profile()
     timeframe = profile.timeframe
 
     fetcher = MarketDataFetcher()
+    df_1h = fetcher.fetch(symbol, "1h", limit=40000)
+    df_1d = resample_ohlcv(df_1h, "1D")
 
     if timeframe == "1h":
-        data = fetcher.fetch(symbol, "1h", limit=10000 + 250)
+        df = df_1h.tail(10000 + 250)
     else:
         rule_map = {"2h": "2h", "4h": "4h", "8h": "8h", "1d": "1D"}
-        df_1h = fetcher.fetch(symbol, "1h", limit=40000)
-        data = resample_ohlcv(df_1h, rule_map[timeframe])
-        data = data.tail(10000 + 250)
+        df = resample_ohlcv(df_1h, rule_map[timeframe])
+        df = df.tail(10000 + 250)
 
-    return symbol, data, timeframe
+    return symbol, df, df_1d, timeframe
 
 
 def main():
@@ -408,19 +412,17 @@ def main():
     gate_mode = "aggressive"
 
     print("\n" + "=" * 70)
-    print(f"BACKTEST: {len(symbols)} symbols")
+    print(f"BACKTEST: {len(symbols)} symbols with 1d filter")
     print("=" * 70)
 
-    # 1. Загрузка данных в главном процессе
     print("\nPreloading data in main process...")
-    fetcher = MarketDataFetcher()
-    symbol_data: Dict[str, Tuple[pd.DataFrame, str]] = {}
+    symbol_data: Dict[str, Tuple[pd.DataFrame, pd.DataFrame, str]] = {}
 
     for sym in symbols:
         try:
-            _, df, tf = preload_data_for_symbol(sym)
-            symbol_data[sym] = (df, tf)
-            print(f"  {sym}: {len(df)} bars ({tf})")
+            _, df, df_1d, tf = preload_data(sym)
+            symbol_data[sym] = (df, df_1d, tf)
+            print(f"  {sym}: {len(df)} bars ({tf}), {len(df_1d)} bars 1d")
         except Exception as e:
             print(f"  {sym}: FAILED - {e}")
 
@@ -428,15 +430,15 @@ def main():
         print("\nNo data. Exit.")
         return
 
-    # 2. Формируем задачи с данными
     tasks = []
     for sym in symbols:
         if sym not in symbol_data:
             continue
-        df, tf = symbol_data[sym]
+        df, df_1d, tf = symbol_data[sym]
         tasks.append({
             "symbol": sym,
             "data": df,
+            "df_1d": df_1d,
             "timeframe": tf,
             "export_dir": export_dir,
             "starting_equity": starting_equity,

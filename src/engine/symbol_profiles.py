@@ -1,11 +1,13 @@
 """Профили инструментов (5 крипто-символов).
 
-Особенности:
-- BTC: 2h, atr=2.0 rr=3.0 chop=ON long=off (+$5236)
-- ETH: 1h, atr=3.0 rr=2.5 chop=ON (+$2164)
-- ADA: 1h, atr=3.0 rr=2.5 chop=ON (+$2803)
-- DOT: 1h, atr=2.5 rr=2.5 chop=ON (+$2640)
-- ATOM: 1h, atr=3.0 rr=2.0 chop=ON (+$2668)
+Фильтры:
+- filter_chop: не торговать в CHOP
+- regime_1d_filter: не торговать против 1d тренда
+- long_only: только BUY
+
+Per-symbol оптимизация 1d-фильтра:
+- BTC, ETH, ADA: 1d=ON (фильтр помогает)
+- DOT, ATOM: 1d=off (фильтр вредит)
 """
 
 import logging
@@ -24,6 +26,7 @@ class SymbolProfile:
     atr_period: int = 14
     default_rr_ratio: float = 2.5
     filter_chop: bool = True
+    regime_1d_filter: bool = True
     long_only: bool = False
     gate_mode_override: Optional[str] = None
     weights_override: Optional[Dict[str, float]] = None
@@ -46,6 +49,8 @@ class SymbolProfile:
             raise ValueError("default_rr_ratio > 0")
         if not isinstance(self.filter_chop, bool):
             raise ValueError("filter_chop должен быть bool")
+        if not isinstance(self.regime_1d_filter, bool):
+            raise ValueError("regime_1d_filter должен быть bool")
         if not isinstance(self.long_only, bool):
             raise ValueError("long_only должен быть bool")
         if self.gate_mode_override is not None:
@@ -110,9 +115,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_period=14,
             default_rr_ratio=3.0,
             filter_chop=True,
+            regime_1d_filter=True,
             long_only=False,
             weights_override=dict(base_weights),
-            notes="BTC: 2h, atr=2.0 rr=3.0 chop=ON (+$5236)",
+            notes="BTC: 2h, atr=2.0 rr=3.0 chop=ON 1d=ON (+$5354)",
         ),
     )
 
@@ -126,9 +132,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_period=14,
             default_rr_ratio=2.5,
             filter_chop=True,
+            regime_1d_filter=True,
             long_only=False,
             weights_override=dict(base_weights),
-            notes="ETH: 1h, atr=3.0 rr=2.5 chop=ON (+$2164)",
+            notes="ETH: 1h, atr=3.0 rr=2.5 chop=ON 1d=ON (+$2495)",
         ),
     )
 
@@ -142,9 +149,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_period=14,
             default_rr_ratio=2.5,
             filter_chop=True,
+            regime_1d_filter=True,
             long_only=False,
             weights_override=dict(base_weights),
-            notes="ADA: 1h, atr=3.0 rr=2.5 chop=ON (+$2803)",
+            notes="ADA: 1h, atr=3.0 rr=2.5 chop=ON 1d=ON (+$3965)",
         ),
     )
 
@@ -158,9 +166,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_period=14,
             default_rr_ratio=2.5,
             filter_chop=True,
+            regime_1d_filter=False,
             long_only=False,
             weights_override=dict(base_weights),
-            notes="DOT: 1h, atr=2.5 rr=2.5 chop=ON (+$2640)",
+            notes="DOT: 1h, atr=2.5 rr=2.5 chop=ON 1d=off (+$2774)",
         ),
     )
 
@@ -174,9 +183,10 @@ def create_default_registry() -> SymbolProfileRegistry:
             atr_period=14,
             default_rr_ratio=2.0,
             filter_chop=True,
+            regime_1d_filter=False,
             long_only=False,
             weights_override=dict(base_weights),
-            notes="ATOM: 1h, atr=3.0 rr=2.0 chop=ON (+$2668)",
+            notes="ATOM: 1h, atr=3.0 rr=2.0 chop=ON 1d=off (+$2668)",
         ),
     )
 

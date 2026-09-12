@@ -1,9 +1,11 @@
-"""Trading Engine: 4 анализатора + CHOP-фильтр + long_only per-symbol."""
+"""Trading Engine: 4 анализатора + CHOP + long_only + 1d regime filter."""
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
+
+import pandas as pd
 
 from src.engine.config import EngineConfig
 from src.engine.symbol_profiles import SymbolProfile
@@ -41,24 +43,32 @@ class BarResult:
     was_blocked_by_guard: bool = False
     was_blocked_by_chop: bool = False
     was_blocked_by_long_only: bool = False
+    was_blocked_by_regime_1d: bool = False
     guard_reason: str = ""
 
 
 class TradingEngine:
-    def __init__(self, config: Optional[EngineConfig] = None):
+    def __init__(
+        self,
+        config: Optional[EngineConfig] = None,
+        df_1d: Optional[pd.DataFrame] = None,
+    ):
         self.config = config or EngineConfig()
         self.config.validate()
         self.profile: SymbolProfile = self.config.get_symbol_profile()
-
-        # timeframe берётся из профиля, если не задан в config явно
         self._timeframe = self.profile.timeframe or self.config.timeframe
+        self._df_1d = df_1d
+        self._regime_1d_detector = RegimeDetector()
+        self._blocked_by_1d = 0
 
         logger.info(
             "TradingEngine: %s %s, equity=%.2f, "
-            "filter_chop=%s, long_only=%s",
+            "filter_chop=%s, long_only=%s, regime_1d_filter=%s, df_1d=%s",
             self.config.symbol, self._timeframe,
             self.config.starting_equity,
             self.profile.filter_chop, self.profile.long_only,
+            self.profile.regime_1d_filter,
+            len(df_1d) if df_1d is not None else 0,
         )
         self._init_journal()
         self._init_portfolio()
@@ -72,6 +82,10 @@ class TradingEngine:
     @property
     def timeframe(self) -> str:
         return self._timeframe
+
+    @property
+    def blocked_by_1d(self) -> int:
+        return self._blocked_by_1d
 
     def _init_journal(self):
         self.journal = Journal(self.config.journal_db_path)
@@ -144,6 +158,22 @@ class TradingEngine:
     def _init_regime_detector(self):
         self.regime_detector = RegimeDetector()
 
+    def _get_regime_1d(self, current_time) -> MarketRegime:
+        """Определяет режим 1d на момент current_time."""
+        if self._df_1d is None or current_time is None:
+            return MarketRegime.CHOP
+
+        try:
+            available = self._df_1d[self._df_1d.index <= current_time]
+        except Exception:
+            return MarketRegime.CHOP
+
+        if len(available) < 200:
+            return MarketRegime.CHOP
+
+        window = available.iloc[-300:]
+        return self._regime_1d_detector.detect(window)
+
     async def on_bar(self, data, bar_index, bar_time=None):
         self._bar_counter += 1
         result = BarResult(bar_index=bar_index, bar_time=bar_time)
@@ -203,6 +233,19 @@ class TradingEngine:
             if self.profile.long_only and decision.direction == SignalDirection.SELL:
                 result.was_blocked_by_long_only = True
                 return result
+
+            if self.profile.regime_1d_filter:
+                regime_1d = self._get_regime_1d(bar_time)
+                if (regime_1d == MarketRegime.BEAR
+                        and decision.direction == SignalDirection.BUY):
+                    self._blocked_by_1d += 1
+                    result.was_blocked_by_regime_1d = True
+                    return result
+                if (regime_1d == MarketRegime.BULL
+                        and decision.direction == SignalDirection.SELL):
+                    self._blocked_by_1d += 1
+                    result.was_blocked_by_regime_1d = True
+                    return result
 
             opened = self._try_open_position(
                 decision=decision, data=data,
@@ -300,10 +343,12 @@ class TradingEngine:
                 "atr_multiplier": self.profile.atr_multiplier,
                 "default_rr_ratio": self.profile.default_rr_ratio,
                 "filter_chop": self.profile.filter_chop,
+                "regime_1d_filter": self.profile.regime_1d_filter,
                 "long_only": self.profile.long_only,
                 "weights_override": self.profile.weights_override,
                 "notes": self.profile.notes,
             },
+            "blocked_by_1d": self._blocked_by_1d,
         }
 
     def close(self):
