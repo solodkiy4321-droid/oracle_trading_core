@@ -1,28 +1,27 @@
-"""Trading Engine с поддержкой профилей инструментов."""
+"""Trading Engine: 4 анализатора + CHOP-фильтр + long_only per-symbol."""
 
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
 
-import pandas as pd
-
 from src.engine.config import EngineConfig
 from src.engine.symbol_profiles import SymbolProfile
 from src.models import SignalDirection
 from src.signal_intake.intake import SignalIntake
-from src.analyzers.indicators import IndicatorsAnalyzer
-from src.analyzers.harmonic import HarmonicAnalyzer
-from src.analyzers.support_resistance import SRAnalyzer
+from src.analyzers.trend import TrendAnalyzer
+from src.analyzers.elliott_wave import ElliottWaveAnalyzer
+from src.analyzers.volatility import VolatilityAnalyzer
+from src.analyzers.volume import VolumeAnalyzer
 from src.confluence.engine import ConfluenceEngine, ConfluenceDecision
 from src.confluence.gate import GateMode
-from src.risk.risk_manager import RiskManager, TradePlan
-from src.position.manager import PositionManager, PositionUpdate
+from src.confluence.regime_detector import RegimeDetector, MarketRegime
+from src.risk.risk_manager import RiskManager
+from src.position.manager import PositionManager
 from src.position.position import Position, CloseReason
-from src.position.events import PositionEvent, PositionEventType
+from src.position.events import PositionEvent
 from src.portfolio.manager import PortfolioRiskManager
 from src.portfolio.limits import RiskLimits
-from src.portfolio.state import PortfolioState
 from src.journal.journal import Journal
 from src.journal.analytics import JournalAnalytics
 
@@ -40,6 +39,8 @@ class BarResult:
     decision: Optional[ConfluenceDecision] = None
     events: List[PositionEvent] = field(default_factory=list)
     was_blocked_by_guard: bool = False
+    was_blocked_by_chop: bool = False
+    was_blocked_by_long_only: bool = False
     guard_reason: str = ""
 
 
@@ -47,35 +48,36 @@ class TradingEngine:
     def __init__(self, config: Optional[EngineConfig] = None):
         self.config = config or EngineConfig()
         self.config.validate()
-
         self.profile: SymbolProfile = self.config.get_symbol_profile()
 
-        logger.info(
-            "TradingEngine: %s %s, equity=%.2f",
-            self.config.symbol, self.config.timeframe,
-            self.config.starting_equity,
-        )
-        logger.info(
-            "Профиль: risk=%.2f%%, atr=%.2f, disabled_patterns=%s",
-            self.profile.risk_per_trade_pct * 100,
-            self.profile.atr_multiplier,
-            self.profile.harmonic_disabled_patterns,
-        )
+        # timeframe берётся из профиля, если не задан в config явно
+        self._timeframe = self.profile.timeframe or self.config.timeframe
 
+        logger.info(
+            "TradingEngine: %s %s, equity=%.2f, "
+            "filter_chop=%s, long_only=%s",
+            self.config.symbol, self._timeframe,
+            self.config.starting_equity,
+            self.profile.filter_chop, self.profile.long_only,
+        )
         self._init_journal()
         self._init_portfolio()
         self._init_position_manager()
         self._init_risk_manager()
         self._init_intake()
         self._init_confluence()
-
+        self._init_regime_detector()
         self._bar_counter = 0
 
-    def _init_journal(self) -> None:
+    @property
+    def timeframe(self) -> str:
+        return self._timeframe
+
+    def _init_journal(self):
         self.journal = Journal(self.config.journal_db_path)
         self.analytics = JournalAnalytics(self.journal.db)
 
-    def _init_portfolio(self) -> None:
+    def _init_portfolio(self):
         limits = RiskLimits(
             daily_loss_limit_pct=self.config.daily_loss_limit_pct,
             daily_profit_target_pct=self.config.daily_profit_target_pct,
@@ -87,11 +89,10 @@ class TradingEngine:
             pause_duration_hours=self.config.pause_duration_hours,
         )
         self.portfolio = PortfolioRiskManager(
-            starting_equity=self.config.starting_equity,
-            limits=limits,
+            starting_equity=self.config.starting_equity, limits=limits,
         )
 
-    def _init_position_manager(self) -> None:
+    def _init_position_manager(self):
         self.position_manager = PositionManager(
             breakeven_after_tp=self.config.breakeven_after_tp,
             trailing_after_tp=self.config.trailing_after_tp,
@@ -100,7 +101,7 @@ class TradingEngine:
             commission_pct=self.config.commission_pct,
         )
 
-    def _init_risk_manager(self) -> None:
+    def _init_risk_manager(self):
         self.risk_manager = RiskManager(
             risk_per_trade_pct=self.profile.risk_per_trade_pct,
             atr_period=self.profile.atr_period,
@@ -109,27 +110,24 @@ class TradingEngine:
             max_position_pct=self.profile.max_position_pct,
         )
 
-    def _init_intake(self) -> None:
-        """Инициализация Signal Intake с параметрами из профиля."""
+    def _init_intake(self):
         self.intake = SignalIntake(timeout=5.0)
 
-        if self.config.enable_indicators:
-            self.intake.register(IndicatorsAnalyzer(name="indicators"))
-        if self.config.enable_harmonic:
-            # NEW: передаём disabled_patterns в HarmonicAnalyzer
-            self.intake.register(HarmonicAnalyzer(
-                name="harmonic",
-                disabled_patterns=self.profile.harmonic_disabled_patterns,
-            ))
-        if self.config.enable_support_resistance:
-            self.intake.register(SRAnalyzer(name="support_resistance"))
+        if self.config.enable_trend:
+            self.intake.register(TrendAnalyzer(name="trend"))
+        if self.config.enable_elliott_wave:
+            self.intake.register(ElliottWaveAnalyzer(name="elliott_wave"))
+        if self.config.enable_volatility:
+            self.intake.register(VolatilityAnalyzer(name="volatility"))
+        if self.config.enable_volume:
+            self.intake.register(VolumeAnalyzer(name="volume"))
 
         logger.info(
             "Анализаторы: %s",
-            [a.name for a in self.intake._collector.analyzers],
+            [a.name for a in self.intake.analyzers],
         )
 
-    def _init_confluence(self) -> None:
+    def _init_confluence(self):
         gate_mode_map = {
             "aggressive": GateMode.AGGRESSIVE,
             "balanced": GateMode.BALANCED,
@@ -139,16 +137,19 @@ class TradingEngine:
         gate_mode = gate_mode_map.get(gate_mode_str, GateMode.BALANCED)
 
         self.confluence = ConfluenceEngine()
-
         if self.profile.weights_override is not None:
             self.confluence.set_base_weights(self.profile.weights_override)
-            logger.info("weights_override: %s", self.profile.weights_override)
-
         self.confluence.set_gate_mode(gate_mode)
+
+    def _init_regime_detector(self):
+        self.regime_detector = RegimeDetector()
 
     async def on_bar(self, data, bar_index, bar_time=None):
         self._bar_counter += 1
         result = BarResult(bar_index=bar_index, bar_time=bar_time)
+
+        if self._bar_counter % self.config.snapshot_every_n_bars == 0:
+            self.journal.log_portfolio_snapshot(self.portfolio.state)
 
         if len(data) < 50:
             return result
@@ -172,6 +173,12 @@ class TradingEngine:
             result.closed_positions.append(closed_pos)
             result.realized_pnl += closed_pos.realized_pnl
 
+        if self.profile.filter_chop:
+            regime = self.regime_detector.detect(data)
+            if regime == MarketRegime.CHOP:
+                result.was_blocked_by_chop = True
+                return result
+
         guard_result = self.portfolio.can_open(
             symbol=self.config.symbol,
             risk_pct=self.profile.risk_per_trade_pct,
@@ -182,17 +189,21 @@ class TradingEngine:
             return result
 
         batch = await self.intake.process(
-            data, symbol=self.config.symbol, timeframe=self.config.timeframe,
+            data, symbol=self.config.symbol, timeframe=self._timeframe,
         )
         decision = self.confluence.decide(batch.signals, data)
         result.decision = decision
 
         self.journal.log_decision(
             decision=decision, symbol=self.config.symbol,
-            timeframe=self.config.timeframe, signals_count=batch.count,
+            timeframe=self._timeframe, signals_count=batch.count,
         )
 
         if decision.passed and decision.direction != SignalDirection.HOLD:
+            if self.profile.long_only and decision.direction == SignalDirection.SELL:
+                result.was_blocked_by_long_only = True
+                return result
+
             opened = self._try_open_position(
                 decision=decision, data=data,
                 current_price=bar_close,
@@ -200,9 +211,6 @@ class TradingEngine:
             )
             if opened is not None:
                 result.opened_position = opened
-
-        if self._bar_counter % self.config.snapshot_every_n_bars == 0:
-            self.journal.log_portfolio_snapshot(self.portfolio.state)
 
         return result
 
@@ -218,15 +226,17 @@ class TradingEngine:
 
         is_valid, errors = self.risk_manager.validate_plan(plan)
         if not is_valid:
-            logger.warning("Невалидный план: %s", errors)
+            logger.debug("Невалидный план: %s", errors)
             return None
 
         position = self.position_manager.open_position(
-            symbol=self.config.symbol, timeframe=self.config.timeframe,
+            symbol=self.config.symbol, timeframe=self._timeframe,
             direction=decision.direction, plan=plan,
             current_time=bar_time,
-            metadata={"regime": decision.regime.value,
-                     "confluence_score": decision.confluence_score},
+            metadata={
+                "regime": decision.regime.value,
+                "confluence_score": decision.confluence_score,
+            },
         )
         if position is None:
             return None
@@ -285,11 +295,13 @@ class TradingEngine:
             },
             "profile": {
                 "symbol": self.config.symbol,
+                "timeframe": self._timeframe,
                 "risk_per_trade_pct": self.profile.risk_per_trade_pct,
                 "atr_multiplier": self.profile.atr_multiplier,
-                "gate_mode_override": self.profile.gate_mode_override,
+                "default_rr_ratio": self.profile.default_rr_ratio,
+                "filter_chop": self.profile.filter_chop,
+                "long_only": self.profile.long_only,
                 "weights_override": self.profile.weights_override,
-                "harmonic_disabled_patterns": self.profile.harmonic_disabled_patterns,
                 "notes": self.profile.notes,
             },
         }

@@ -1,0 +1,10 @@
+{
+  "symbol": "AVAX-USD",
+  "timeframe": "1h",
+  "fetched_at": 1789226931.268426,
+  "fetched_at_iso": "2026-09-12T15:28:51.268426+00:00",
+  "rows": 17322,
+  "source": "yfinance",
+  "period": "730d",
+  "interval": "1h"
+}

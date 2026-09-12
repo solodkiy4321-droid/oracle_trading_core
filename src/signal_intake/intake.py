@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 class SignalIntake:
     """
     Фасад модуля приёма сигналов.
-    
+
     Объединяет:
     - SignalCollector: сбор сигналов от анализаторов
     - normalize: приведение к единому формату
@@ -26,8 +26,22 @@ class SignalIntake:
         self._collector = SignalCollector(timeout=timeout)
 
     def register(self, analyzer: BaseAnalyzer) -> None:
-        """Зарегистрировать анализатор."""
         self._collector.register(analyzer)
+
+    def unregister(self, analyzer: BaseAnalyzer) -> None:
+        self._collector.unregister(analyzer)
+
+    def clear(self) -> None:
+        """Удалить все зарегистрированные анализаторы."""
+        self._collector.clear()
+
+    @property
+    def analyzers(self):
+        return self._collector.analyzers
+
+    @property
+    def count(self) -> int:
+        return len(self._collector.analyzers)
 
     async def process(
         self,
@@ -35,13 +49,6 @@ class SignalIntake:
         symbol: str,
         timeframe: str,
     ) -> SignalBatch:
-        """
-        Полный цикл приёма сигналов:
-        1. Собрать сырые сигналы от всех анализаторов
-        2. Нормализовать каждый
-        3. Провалидировать каждый
-        4. Вернуть батч с валидными и отвергнутыми
-        """
         logger.info("Начало приёма сигналов: %s %s", symbol, timeframe)
 
         raw_signals, rejected_from_collector, stats = await self._collector.collect_all(data)
@@ -50,7 +57,6 @@ class SignalIntake:
         rejected = list(rejected_from_collector)
 
         for raw in raw_signals:
-            # Нормализация
             try:
                 normalized = normalize(raw, symbol=symbol, timeframe=timeframe)
             except Exception as e:
@@ -62,7 +68,6 @@ class SignalIntake:
                 ))
                 continue
 
-            # Валидация
             is_valid, error = validate(normalized)
             if not is_valid:
                 logger.warning("Сигнал от %s отвергнут: %s", normalized.source, error)

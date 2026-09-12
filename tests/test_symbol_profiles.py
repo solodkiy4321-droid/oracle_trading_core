@@ -1,4 +1,10 @@
-"""Тесты профилей инструментов (базовые параметры)."""
+"""Тесты профилей инструментов (рабочая версия, +$4033).
+
+ОТКАТ ПОДХОДА 3:
+- Без regime_profiles
+- Без apply_regime_multipliers
+- Per-symbol веса и harmonic_min_pattern_confidence
+"""
 
 import pytest
 
@@ -19,7 +25,7 @@ def test_profile_defaults():
     assert profile.max_position_pct == 1.0
     assert profile.gate_mode_override is None
     assert profile.weights_override is None
-    assert profile.harmonic_disabled_patterns is None
+    assert profile.harmonic_min_pattern_confidence is None
 
 
 def test_profile_custom():
@@ -34,12 +40,12 @@ def test_profile_custom():
             "harmonic": 0.2,
             "support_resistance": 0.2,
         },
-        harmonic_disabled_patterns=["Butterfly"],
+        harmonic_min_pattern_confidence=0.5,
     )
     assert profile.risk_per_trade_pct == 0.007
     assert profile.atr_multiplier == 2.5
     assert profile.gate_mode_override == "conservative"
-    assert profile.harmonic_disabled_patterns == ["Butterfly"]
+    assert profile.harmonic_min_pattern_confidence == 0.5
 
 
 def test_profile_validate_valid():
@@ -100,20 +106,16 @@ def test_profile_weights_override_valid():
     profile.validate()
 
 
-def test_profile_invalid_disabled_pattern():
-    """Неверный паттерн в disabled_patterns → ошибка."""
-    profile = SymbolProfile(
-        harmonic_disabled_patterns=["InvalidPattern"],
-    )
+def test_profile_invalid_pattern_confidence():
+    """Неверный harmonic_min_pattern_confidence → ошибка."""
+    profile = SymbolProfile(harmonic_min_pattern_confidence=1.5)
     with pytest.raises(ValueError):
         profile.validate()
 
 
-def test_profile_valid_disabled_patterns():
-    """Валидные паттерны проходят."""
-    profile = SymbolProfile(
-        harmonic_disabled_patterns=["Butterfly", "Crab"],
-    )
+def test_profile_valid_pattern_confidence():
+    """Валидный harmonic_min_pattern_confidence проходит."""
+    profile = SymbolProfile(harmonic_min_pattern_confidence=0.5)
     profile.validate()
 
 
@@ -154,12 +156,11 @@ def test_registry_case_insensitive():
     assert profile.risk_per_trade_pct == 0.005
 
 
-def test_default_registry_btc_base_params():
+def test_default_registry_btc_has_4_analyzers():
     """
-    BTC в default registry — БАЗОВЫЕ параметры после отката.
+    BTC в default registry имеет веса 4 анализаторов.
 
-    Мы откатили weights_override и harmonic_disabled_patterns, потому что
-    диагностика на 17-19 сделках дала ненадёжные выводы.
+    Веса: S/R 0.40, harmonic 0.25, indicators 0.20, elliott_wave 0.15.
     """
     registry = create_default_registry()
     btc = registry.get("BTC-USD")
@@ -168,39 +169,43 @@ def test_default_registry_btc_base_params():
     assert btc.atr_multiplier == 2.5
     assert btc.max_position_pct == 0.5
     assert btc.gate_mode_override is None
-    assert btc.weights_override is None, (
-        "BTC использует базовые веса после отката"
-    )
-    assert btc.harmonic_disabled_patterns is None, (
-        "BTC не отключает паттерны harmonic"
-    )
+    assert btc.weights_override is not None
+    assert btc.weights_override["support_resistance"] == 0.40
+    assert btc.weights_override["harmonic"] == 0.25
+    assert btc.weights_override["indicators"] == 0.20
+    assert btc.weights_override["elliott_wave"] == 0.15
+    assert btc.harmonic_min_pattern_confidence == 0.50
 
 
-def test_default_registry_eth_base_params():
-    """
-    ETH в default registry — БАЗОВЫЕ параметры после отката.
-
-    Butterfly снова включён, потому что его отключение сломало систему.
-    """
+def test_default_registry_eth_has_4_analyzers():
+    """ETH имеет веса 4 анализаторов."""
     registry = create_default_registry()
     eth = registry.get("ETH-USD")
 
     assert eth.risk_per_trade_pct == 0.01
     assert eth.atr_multiplier == 1.5
-    assert eth.gate_mode_override is None
-    assert eth.weights_override is None
-    assert eth.harmonic_disabled_patterns is None, (
-        "ETH не отключает паттерны harmonic после отката"
-    )
+    assert eth.weights_override is not None
+    assert "elliott_wave" in eth.weights_override
+    assert eth.harmonic_min_pattern_confidence == 0.50
 
 
 def test_default_registry_aapl():
-    """AAPL в default registry — базовые параметры."""
+    """AAPL имеет веса 4 анализаторов."""
     registry = create_default_registry()
     aapl = registry.get("AAPL")
 
     assert aapl.risk_per_trade_pct == 0.015
     assert aapl.atr_multiplier == 2.0
-    assert aapl.gate_mode_override is None
-    assert aapl.weights_override is None
-    assert aapl.harmonic_disabled_patterns is None
+    assert aapl.weights_override is not None
+    assert "elliott_wave" in aapl.weights_override
+
+
+def test_default_registry_all_pairs_have_weights():
+    """Все 7 пар имеют weights_override."""
+    registry = create_default_registry()
+    for symbol in ["BTC-USD", "ETH-USD", "ADA-USD", "AVAX-USD",
+                   "DOT-USD", "ATOM-USD", "AAPL"]:
+        profile = registry.get(symbol)
+        assert profile.weights_override is not None, f"{symbol} без weights"
+        total = sum(profile.weights_override.values())
+        assert abs(total - 1.0) < 1e-6, f"{symbol} сумма весов != 1.0"

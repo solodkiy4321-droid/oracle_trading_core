@@ -1,0 +1,10 @@
+{
+  "symbol": "BTC-USD",
+  "timeframe": "1d",
+  "fetched_at": 1789239399.7129462,
+  "fetched_at_iso": "2026-09-12T18:56:39.712946+00:00",
+  "rows": 1827,
+  "source": "yfinance",
+  "period": "5y",
+  "interval": "1d"
+}

@@ -1,4 +1,4 @@
-"""Тесты интеграции профилей с Trading Engine (базовые параметры)."""
+"""Тесты интеграции профилей с Trading Engine (4 анализатора)."""
 
 import pytest
 
@@ -12,9 +12,7 @@ from src.engine.symbol_profiles import (
 
 def test_config_uses_btc_profile():
     """
-    Config получает профиль для BTC с БАЗОВЫМИ параметрами.
-
-    После отката: weights_override=None, harmonic_disabled_patterns=None.
+    Config получает профиль для BTC с 4 анализаторами.
     """
     config = EngineConfig(symbol="BTC-USD", journal_db_path=":memory:")
     profile = config.get_symbol_profile()
@@ -23,28 +21,22 @@ def test_config_uses_btc_profile():
     assert profile.atr_multiplier == 2.5
     assert profile.max_position_pct == 0.5
     assert profile.gate_mode_override is None
-    assert profile.weights_override is None, (
-        "BTC использует базовые веса после отката"
-    )
-    assert profile.harmonic_disabled_patterns is None
+    assert profile.weights_override is not None
+    assert profile.weights_override["support_resistance"] == 0.40
+    assert profile.weights_override["harmonic"] == 0.25
+    assert profile.weights_override["indicators"] == 0.20
+    assert profile.weights_override["elliott_wave"] == 0.15
 
 
 def test_config_uses_eth_profile():
-    """
-    Config получает профиль для ETH с БАЗОВЫМИ параметрами.
-
-    После отката: Butterfly снова включён.
-    """
+    """Config получает профиль для ETH с 4 анализаторами."""
     config = EngineConfig(symbol="ETH-USD", journal_db_path=":memory:")
     profile = config.get_symbol_profile()
 
     assert profile.risk_per_trade_pct == 0.01
     assert profile.atr_multiplier == 1.5
-    assert profile.gate_mode_override is None
-    assert profile.weights_override is None
-    assert profile.harmonic_disabled_patterns is None, (
-        "ETH не отключает паттерны harmonic после отката"
-    )
+    assert profile.weights_override is not None
+    assert "elliott_wave" in profile.weights_override
 
 
 def test_config_default_profile():
@@ -56,7 +48,7 @@ def test_config_default_profile():
     assert profile.atr_multiplier == 1.5
     assert profile.gate_mode_override is None
     assert profile.weights_override is None
-    assert profile.harmonic_disabled_patterns is None
+    assert profile.harmonic_min_pattern_confidence is None
 
 
 def test_config_profiles_disabled():
@@ -74,7 +66,7 @@ def test_config_profiles_disabled():
     assert profile.atr_multiplier == 3.0
     assert profile.gate_mode_override is None
     assert profile.weights_override is None
-    assert profile.harmonic_disabled_patterns is None
+    assert profile.harmonic_min_pattern_confidence is None
     assert "Профили отключены" in profile.notes
 
 
@@ -87,7 +79,7 @@ def test_config_custom_registry():
             risk_per_trade_pct=0.02,
             atr_multiplier=3.0,
             gate_mode_override="aggressive",
-            harmonic_disabled_patterns=["Crab"],
+            harmonic_min_pattern_confidence=0.6,
         ),
     )
 
@@ -101,4 +93,4 @@ def test_config_custom_registry():
     assert profile.risk_per_trade_pct == 0.02
     assert profile.atr_multiplier == 3.0
     assert profile.gate_mode_override == "aggressive"
-    assert profile.harmonic_disabled_patterns == ["Crab"]
+    assert profile.harmonic_min_pattern_confidence == 0.6

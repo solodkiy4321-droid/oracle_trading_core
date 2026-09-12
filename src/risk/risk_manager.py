@@ -1,4 +1,4 @@
-"""Risk Manager: главный класс для расчёта параметров сделки."""
+"""Risk Manager: расчёт параметров сделки."""
 
 import logging
 from dataclasses import dataclass, field
@@ -32,17 +32,6 @@ class TradePlan:
 
 
 class RiskManager:
-    """
-    Главный класс Risk Manager.
-
-    Объединяет:
-    - StopLossCalculator: расчёт стоп-лосса на основе ATR
-    - TakeProfitCalculator: расчёт тейк-профитов
-    - PositionSizer: расчёт размера позиции
-
-    Все параметры (risk, ATR multiplier, rr ratio) могут быть
-    переопределены из SymbolProfile.
-    """
 
     def __init__(
         self,
@@ -53,15 +42,6 @@ class RiskManager:
         max_leverage: float = 3.0,
         max_position_pct: float = 1.0,
     ):
-        """
-        Args:
-            risk_per_trade_pct: Процент риска на сделку
-            atr_period: Период ATR
-            atr_multiplier: Множитель ATR для расчёта SL
-            default_rr_ratio: Соотношение риск/прибыль по умолчанию
-            max_leverage: Максимальное плечо
-            max_position_pct: Максимальный размер позиции (доля equity)
-        """
         self.stop_loss_calc = StopLossCalculator(
             atr_period=atr_period,
             atr_multiplier=atr_multiplier,
@@ -86,14 +66,12 @@ class RiskManager:
         risk_pct: Optional[float] = None,
         tp_ratios: Optional[List[float]] = None,
     ) -> Optional[TradePlan]:
-        """Рассчитывает полный торговый план."""
         if direction == SignalDirection.HOLD:
             logger.debug("Направление HOLD — план не рассчитывается")
             return None
 
         warnings = []
 
-        # 1. Стоп-лосс
         sl_result = self.stop_loss_calc.calculate(
             entry_price=entry_price,
             direction=direction,
@@ -104,7 +82,6 @@ class RiskManager:
             logger.warning("Не удалось рассчитать стоп-лосс")
             return None
 
-        # 2. Размер позиции
         size_result = self.position_sizer.calculate(
             equity=equity,
             entry_price=entry_price,
@@ -115,7 +92,6 @@ class RiskManager:
             logger.warning("Не удалось рассчитать размер позиции")
             return None
 
-        # 3. Тейк-профиты
         tp_result = self.take_profit_calc.calculate(
             entry_price=entry_price,
             sl_distance=sl_result.distance,
@@ -123,10 +99,9 @@ class RiskManager:
             ratios=tp_ratios,
         )
         if tp_result is None:
-            logger.warning("Не удалось рассчитать тейк-профиты")
+            logger.warning("Не удалось рассчитать тейк-профит")
             return None
 
-        # 4. Проверки
         if size_result.leverage > self.max_leverage:
             warnings.append(
                 f"Высокое плечо: {size_result.leverage:.2f}x "
@@ -135,11 +110,10 @@ class RiskManager:
 
         if sl_result.distance_pct > 0.1:
             warnings.append(
-                f"Стоп-лосс слишком далеко: {sl_result.distance_pct * 100:.1f}% "
-                f"от цены входа"
+                f"Стоп-лосс слишком далеко: "
+                f"{sl_result.distance_pct * 100:.1f}% от цены входа"
             )
 
-        # 5. Формируем план
         plan = TradePlan(
             direction=direction,
             entry_price=entry_price,
@@ -157,7 +131,7 @@ class RiskManager:
 
         logger.info(
             "Торговый план: %s, entry=%.4f, SL=%.4f (%.2f%%), "
-            "TP1=%.4f (1:%.1f), size=%.6f, risk=%.2f (%.2f%%)",
+            "TP=%.4f (1:%.2f), size=%.6f, risk=%.2f (%.2f%%)",
             direction.name, entry_price,
             sl_result.price, sl_result.distance_pct * 100,
             tp_result.levels[0].price if tp_result.levels else 0,
@@ -172,7 +146,6 @@ class RiskManager:
         return plan
 
     def validate_plan(self, plan: TradePlan) -> tuple:
-        """Валидирует торговый план."""
         errors = []
 
         if plan.entry_price <= 0:

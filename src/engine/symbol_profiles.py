@@ -1,63 +1,62 @@
-"""Профили адаптивных параметров для инструментов.
+"""Профили инструментов (5 крипто-символов).
 
-Данные 9 инструментов × 10000 баров (227 сделок):
-- ADA: +7.21% (Default) ⭐
-- DOT: +6.55% (Default) ⭐
-- BTC: +6.52% (кастомный ATR 2.5) ⭐
-- AVAX: +6.45% (Default) ⭐
-- ATOM: +6.01% (Default) ⭐
-- ETH: +5.25% (кастомный ATR 1.5)
-- AAPL: +2.32% (кастомный ATR 2.0)
-- NEAR: −2.06% (Default) → ИСКЛЮЧИТЬ
-- SOL: −2.60% (кастомный ATR 2.0) → ИСКЛЮЧИТЬ
+Особенности:
+- BTC: 2h, long_only=True (SELL убыточен, Long-Only стабильнее)
+- ETH, ADA, DOT, ATOM: 1h, long_only=False
 
-ВЫВОД: Default profile отлично работает для большинства альткоинов
-(ADA, AVAX, DOT, ATOM). Кастомный нужен только для BTC, ETH, AAPL.
+Параметры ATR/RR — из sweep'ов.
+Фильтр CHOP — из alt_regime_filter + btc_regime_filter.
 """
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, Dict, List
+from typing import Optional, Dict
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class SymbolProfile:
-    """Профиль адаптивных параметров для инструмента."""
+    timeframe: str = "1h"
     risk_per_trade_pct: float = 0.01
     max_position_pct: float = 1.0
-    atr_multiplier: float = 1.5
+    atr_multiplier: float = 3.0
     atr_period: int = 14
-    default_rr_ratio: float = 2.0
+    default_rr_ratio: float = 2.5
+    filter_chop: bool = True
+    long_only: bool = False
     gate_mode_override: Optional[str] = None
     weights_override: Optional[Dict[str, float]] = None
-    harmonic_disabled_patterns: Optional[List[str]] = None
     notes: str = ""
 
     def validate(self) -> None:
+        if self.timeframe not in (
+            "1m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w",
+        ):
+            raise ValueError(f"timeframe неверный: {self.timeframe}")
         if not 0 < self.risk_per_trade_pct <= 0.05:
-            raise ValueError(f"risk_per_trade_pct в (0, 0.05], получено {self.risk_per_trade_pct}")
+            raise ValueError("risk_per_trade_pct в (0, 0.05]")
         if not 0 < self.max_position_pct <= 2.0:
-            raise ValueError(f"max_position_pct в (0, 2.0], получено {self.max_position_pct}")
+            raise ValueError("max_position_pct в (0, 2.0]")
         if self.atr_multiplier <= 0:
-            raise ValueError(f"atr_multiplier > 0, получено {self.atr_multiplier}")
+            raise ValueError("atr_multiplier > 0")
         if self.atr_period < 2:
-            raise ValueError(f"atr_period >= 2, получено {self.atr_period}")
+            raise ValueError("atr_period >= 2")
         if self.default_rr_ratio <= 0:
-            raise ValueError(f"default_rr_ratio > 0, получено {self.default_rr_ratio}")
+            raise ValueError("default_rr_ratio > 0")
+        if not isinstance(self.filter_chop, bool):
+            raise ValueError("filter_chop должен быть bool")
+        if not isinstance(self.long_only, bool):
+            raise ValueError("long_only должен быть bool")
         if self.gate_mode_override is not None:
-            if self.gate_mode_override not in ("aggressive", "balanced", "conservative"):
-                raise ValueError(f"gate_mode_override неверный: {self.gate_mode_override}")
+            if self.gate_mode_override not in (
+                "aggressive", "balanced", "conservative",
+            ):
+                raise ValueError("gate_mode_override неверный")
         if self.weights_override is not None:
             total = sum(self.weights_override.values())
             if abs(total - 1.0) > 1e-6:
-                raise ValueError(f"Сумма weights_override = 1.0, получено {total}")
-        if self.harmonic_disabled_patterns is not None:
-            valid = {"Gartley", "Bat", "Butterfly", "Crab"}
-            for p in self.harmonic_disabled_patterns:
-                if p not in valid:
-                    raise ValueError(f"Неизвестный паттерн: {p}")
+                raise ValueError("Сумма weights_override = 1.0")
 
 
 class SymbolProfileRegistry:
@@ -70,12 +69,12 @@ class SymbolProfileRegistry:
         self._profiles[symbol.upper()] = profile
 
     def get(self, symbol: str) -> SymbolProfile:
-        symbol_upper = symbol.upper()
-        if symbol_upper in self._profiles:
-            return self._profiles[symbol_upper]
+        s = symbol.upper()
+        if s in self._profiles:
+            return self._profiles[s]
         for key, profile in self._profiles.items():
             base = key.split("-")[0].split("_")[0]
-            if symbol_upper.startswith(base):
+            if s.startswith(base):
                 return profile
         return self._default
 
@@ -92,63 +91,93 @@ class SymbolProfileRegistry:
 
 
 def create_default_registry() -> SymbolProfileRegistry:
-    """
-    Реестр с профилями под данные 9 инструментов.
-
-    Кастомные только для проверенных инструментов:
-    - BTC: ATR 2.5 (+6.52%)
-    - ETH: ATR 1.5 (+5.25%)
-    - AAPL: ATR 2.0 (+2.32%)
-
-    Остальные — Default:
-    - ADA: +7.21%
-    - DOT: +6.55%
-    - AVAX: +6.45%
-    - ATOM: +6.01%
-    """
     registry = SymbolProfileRegistry()
 
-    # BTC-USD — проверено
+    base_weights = {
+        "trend": 0.35,
+        "elliott_wave": 0.30,
+        "volatility": 0.20,
+        "volume": 0.15,
+    }
+
     registry.register(
         "BTC-USD",
         SymbolProfile(
-            risk_per_trade_pct=0.007,
-            max_position_pct=0.5,
-            atr_multiplier=2.5,
-            atr_period=14,
-            default_rr_ratio=2.0,
-            notes="BTC: +6.52%, 63% WR, PF 2.25",
-        ),
-    )
-
-    # ETH-USD — проверено
-    registry.register(
-        "ETH-USD",
-        SymbolProfile(
+            timeframe="2h",
             risk_per_trade_pct=0.01,
-            max_position_pct=0.75,
-            atr_multiplier=1.5,
-            atr_period=14,
-            default_rr_ratio=2.0,
-            notes="ETH: +5.25%, 55% WR, PF 1.30",
-        ),
-    )
-
-    # AAPL — проверено
-    registry.register(
-        "AAPL",
-        SymbolProfile(
-            risk_per_trade_pct=0.015,
             max_position_pct=1.0,
             atr_multiplier=2.0,
             atr_period=14,
-            default_rr_ratio=2.0,
-            notes="AAPL: +2.32%, 100% WR",
+            default_rr_ratio=3.0,
+            filter_chop=True,
+            long_only=True,
+            weights_override=dict(base_weights),
+            notes="BTC: 2h, atr=2.0 rr=3.0 long_only (4/4 folds)",
         ),
     )
 
-    # SOL — ИСКЛЮЧЁН (не работает ни с Default, ни с ATR 2.0)
-    # NEAR — ИСКЛЮЧЁН (не работает с Default)
-    # ADA, AVAX, DOT, ATOM — Default (работают отлично)
+    registry.register(
+        "ETH-USD",
+        SymbolProfile(
+            timeframe="1h",
+            risk_per_trade_pct=0.01,
+            max_position_pct=1.0,
+            atr_multiplier=3.0,
+            atr_period=14,
+            default_rr_ratio=2.5,
+            filter_chop=True,
+            long_only=False,
+            weights_override=dict(base_weights),
+            notes="ETH: 1h, atr=3.0 rr=2.5 chop_off",
+        ),
+    )
+
+    registry.register(
+        "ADA-USD",
+        SymbolProfile(
+            timeframe="1h",
+            risk_per_trade_pct=0.01,
+            max_position_pct=1.0,
+            atr_multiplier=3.0,
+            atr_period=14,
+            default_rr_ratio=2.5,
+            filter_chop=True,
+            long_only=False,
+            weights_override=dict(base_weights),
+            notes="ADA: 1h, atr=3.0 rr=2.5 chop_off",
+        ),
+    )
+
+    registry.register(
+        "DOT-USD",
+        SymbolProfile(
+            timeframe="1h",
+            risk_per_trade_pct=0.01,
+            max_position_pct=1.0,
+            atr_multiplier=4.0,
+            atr_period=14,
+            default_rr_ratio=2.0,
+            filter_chop=False,
+            long_only=False,
+            weights_override=dict(base_weights),
+            notes="DOT: 1h, atr=4.0 rr=2.0 (CHOP HURTS)",
+        ),
+    )
+
+    registry.register(
+        "ATOM-USD",
+        SymbolProfile(
+            timeframe="1h",
+            risk_per_trade_pct=0.01,
+            max_position_pct=1.0,
+            atr_multiplier=3.0,
+            atr_period=14,
+            default_rr_ratio=2.0,
+            filter_chop=True,
+            long_only=False,
+            weights_override=dict(base_weights),
+            notes="ATOM: 1h, atr=3.0 rr=2.0 chop_off",
+        ),
+    )
 
     return registry

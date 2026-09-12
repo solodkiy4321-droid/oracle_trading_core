@@ -1,4 +1,4 @@
-"""Конфигурация Trading Engine с поддержкой профилей."""
+"""Конфигурация Trading Engine."""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -14,58 +14,55 @@ from src.engine.symbol_profiles import (
 class EngineConfig:
     """Настройки Trading Engine."""
 
-    # Капитал
     starting_equity: float = 10000.0
     equity_currency: str = "USD"
 
-    # Symbol/Timeframe
     symbol: str = "BTC-USD"
     timeframe: str = "1h"
 
-    # Анализаторы
-    enable_indicators: bool = True
-    enable_harmonic: bool = True
-    enable_support_resistance: bool = True
+    # Анализаторы (4): trend, elliott_wave, volatility, volume
+    enable_trend: bool = True
+    enable_elliott_wave: bool = True
+    enable_volatility: bool = True
+    enable_volume: bool = True
 
-    # Confluence
+    # Отключены (adversarial или убыточные)
+    enable_harmonic: bool = False
+    enable_support_resistance: bool = False
+    enable_momentum: bool = False
+    enable_indicators: bool = False
+
     gate_mode: str = "balanced"
 
-    # Risk Manager
     risk_per_trade_pct: float = 0.01
     atr_period: int = 14
     atr_multiplier: float = 1.5
-    default_rr_ratio: float = 2.0
+    default_rr_ratio: float = 3.0
 
-    # Position Manager
     breakeven_after_tp: int = 1
     trailing_after_tp: int = 2
     trailing_atr_multiplier: float = 1.0
     max_position_age_bars: int = 100
     commission_pct: float = 0.001
 
-    # Portfolio Risk — ОСЛАБЛЕНО для сбора статистики
     daily_loss_limit_pct: float = 0.03
     daily_profit_target_pct: float = 0.06
     max_drawdown_pct: float = 0.15
     max_open_positions: int = 5
     max_positions_per_symbol: int = 1
     max_positions_per_group: int = 2
-    pause_after_consecutive_losses: int = 5    # было 3
-    pause_duration_hours: int = 12             # было 24
+    pause_after_consecutive_losses: int = 5
+    pause_duration_hours: int = 12
 
-    # Journal
     journal_db_path: str = "journal.db"
     snapshot_every_n_bars: int = 24
 
-    # Logging
     log_level: str = "INFO"
 
-    # Профили инструментов
     use_symbol_profiles: bool = True
     symbol_profiles: Optional[SymbolProfileRegistry] = None
 
     def get_symbol_profile(self) -> SymbolProfile:
-        """Возвращает профиль для текущего символа."""
         if not self.use_symbol_profiles:
             return SymbolProfile(
                 risk_per_trade_pct=self.risk_per_trade_pct,
@@ -74,43 +71,22 @@ class EngineConfig:
                 default_rr_ratio=self.default_rr_ratio,
                 notes="Профили отключены",
             )
-
         registry = self.symbol_profiles
         if registry is None:
             registry = create_default_registry()
             self.symbol_profiles = registry
-
         return registry.get(self.symbol)
 
     def validate(self) -> None:
-        """Проверяет корректность конфигурации."""
         if self.starting_equity <= 0:
-            raise ValueError(
-                f"starting_equity должен быть > 0, "
-                f"получено {self.starting_equity}"
-            )
+            raise ValueError("starting_equity > 0")
         if not 0 < self.risk_per_trade_pct <= 0.05:
-            raise ValueError(
-                f"risk_per_trade_pct должен быть в (0, 0.05], "
-                f"получено {self.risk_per_trade_pct}"
-            )
+            raise ValueError("risk_per_trade_pct в (0, 0.05]")
         if self.atr_multiplier <= 0:
-            raise ValueError(
-                f"atr_multiplier должен быть > 0, "
-                f"получено {self.atr_multiplier}"
-            )
+            raise ValueError("atr_multiplier > 0")
         if self.gate_mode not in ("aggressive", "balanced", "conservative"):
-            raise ValueError(
-                f"Неверный gate_mode: {self.gate_mode}. "
-                f"Допустимые: 'aggressive', 'balanced', 'conservative'"
-            )
+            raise ValueError("gate_mode неверный")
         if self.pause_after_consecutive_losses < 1:
-            raise ValueError(
-                f"pause_after_consecutive_losses должен быть >= 1, "
-                f"получено {self.pause_after_consecutive_losses}"
-            )
+            raise ValueError("pause_after_consecutive_losses >= 1")
         if self.pause_duration_hours < 1:
-            raise ValueError(
-                f"pause_duration_hours должен быть >= 1, "
-                f"получено {self.pause_duration_hours}"
-            )
+            raise ValueError("pause_duration_hours >= 1")

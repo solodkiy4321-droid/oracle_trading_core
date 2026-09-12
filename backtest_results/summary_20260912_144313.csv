@@ -1,0 +1,9 @@
+symbol,timeframe,bars,trades,wins,losses,breakeven,win_rate,profit_factor,total_pnl,total_pnl_pct,sharpe,sortino,max_dd_pct,max_dd_dollar,expectancy,avg_win,avg_loss,starting_equity,final_equity,duration_sec,error
+BTC-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+ETH-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+ADA-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+AVAX-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+DOT-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+ATOM-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"
+UNI-USD,1h,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,10000.0,0.0,1.0253,Fetch error UNI-USD: Empty response for UNI-USD 1h
+AAPL,1d,0,0,0,0,0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,"Worker crash: ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000"

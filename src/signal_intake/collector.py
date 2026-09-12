@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class SignalCollector:
     """
     Собирает сигналы от всех зарегистрированных анализаторов.
-    
+
     Ключевые особенности:
     - Параллельный запуск через asyncio.gather
     - Изоляция сбоев (return_exceptions=True)
@@ -22,40 +22,31 @@ class SignalCollector:
     """
 
     def __init__(self, timeout: float = 5.0):
-        """
-        Args:
-            timeout: Таймаут на один анализатор в секундах
-        """
         self._analyzers: List[BaseAnalyzer] = []
         self._timeout = timeout
 
     def register(self, analyzer: BaseAnalyzer) -> None:
-        """Зарегистрировать анализатор."""
         if not isinstance(analyzer, BaseAnalyzer):
             raise TypeError(f"Ожидается BaseAnalyzer, получен {type(analyzer)}")
         self._analyzers.append(analyzer)
         logger.info("Анализатор зарегистрирован: %s", analyzer.name)
 
     def unregister(self, analyzer: BaseAnalyzer) -> None:
-        """Удалить анализатор из реестра."""
         if analyzer in self._analyzers:
             self._analyzers.remove(analyzer)
             logger.info("Анализатор удалён: %s", analyzer.name)
 
+    def clear(self) -> None:
+        self._analyzers.clear()
+        logger.info("Все анализаторы удалены")
+
     @property
     def analyzers(self) -> List[BaseAnalyzer]:
-        """Список зарегистрированных анализаторов."""
         return list(self._analyzers)
 
     async def _run_one(
         self, analyzer: BaseAnalyzer, data: pd.DataFrame
     ) -> Tuple[str, Optional[AnalyzerSignal], Optional[str]]:
-        """
-        Запустить один анализатор с таймаутом.
-        
-        Returns:
-            (имя_анализатора, сигнал_или_None, сообщение_об_ошибке_или_None)
-        """
         try:
             signal = await asyncio.wait_for(
                 analyzer.analyze(data),
@@ -74,12 +65,6 @@ class SignalCollector:
     async def collect_all(
         self, data: pd.DataFrame
     ) -> Tuple[List[AnalyzerSignal], List[RejectedSignal], dict]:
-        """
-        Собрать сигналы от всех анализаторов параллельно.
-        
-        Returns:
-            (валидные_сигналы, отвергнутые, статистика)
-        """
         if not self._analyzers:
             logger.warning("Нет зарегистрированных анализаторов")
             return [], [], {"total": 0, "responded": 0, "failed": 0}
@@ -92,7 +77,6 @@ class SignalCollector:
         failed = 0
 
         for result in results:
-            # Если gather вернул исключение (не должно случаться, но на всякий случай)
             if isinstance(result, Exception):
                 logger.error("Необработанное исключение в gather: %s", result)
                 failed += 1
@@ -106,7 +90,6 @@ class SignalCollector:
                 continue
 
             if signal is None:
-                # Анализатор не нашёл сигнал — это нормально
                 continue
 
             signals.append(signal)

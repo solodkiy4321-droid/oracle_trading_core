@@ -14253,3 +14253,289 @@
 2026-09-11 19:16:22 [ERROR] yfinance: $MATIC-USD: possibly delisted; no price data found  (period=730d)
 2026-09-11 19:25:50 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 04:25:50.445550+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
 2026-09-11 19:47:48 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 22:57:32 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 07:57:32.516596+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-11 23:02:01 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 23:02:09 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-11 23:02:09 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.8% от цены входа
+2026-09-11 23:10:17 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 08:10:17.895265+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-11 23:13:12 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-12 08:13:12.241079+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-11 23:18:07 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 23:29:46 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-12 17:43:11 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-12 17:43:11 [WARNING] src.data.fetcher: Failed to save cache data_cache\BTC-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:11 [ERROR] root: Worker crash for BTC-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [WARNING] src.data.fetcher: Failed to save cache data_cache\ATOM-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:11 [WARNING] src.data.fetcher: Failed to save cache data_cache\ADA-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:11 [ERROR] root: Worker crash for ATOM-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [WARNING] src.data.fetcher: Failed to save cache data_cache\AVAX-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:11 [ERROR] root: Worker crash for ADA-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [ERROR] root: Worker crash for AVAX-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:12 [WARNING] src.data.fetcher: Failed to save cache data_cache\ETH-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:12 [ERROR] root: Worker crash for ETH-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:13 [WARNING] src.data.fetcher: Failed to save cache data_cache\DOT-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:13 [ERROR] root: Worker crash for DOT-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:13 [WARNING] src.data.fetcher: Failed to save cache data_cache\AAPL_1d.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:43:13 [ERROR] root: Worker crash for AAPL: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:44:08 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-12 17:44:08 [WARNING] src.data.fetcher: Failed to save cache data_cache\AAPL_1d.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:08 [WARNING] src.data.fetcher: Failed to save cache data_cache\DOT-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:09 [WARNING] src.data.fetcher: Failed to save cache data_cache\ADA-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:09 [WARNING] src.data.fetcher: Failed to save cache data_cache\BTC-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:09 [WARNING] src.data.fetcher: Failed to save cache data_cache\AVAX-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:09 [WARNING] src.data.fetcher: Failed to save cache data_cache\ETH-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:09 [WARNING] src.data.fetcher: Failed to save cache data_cache\ATOM-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:44:15 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-12 17:46:04 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.8% от цены входа
+2026-09-12 17:46:04 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 10.9% от цены входа
+2026-09-12 17:46:06 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.1% от цены входа
+2026-09-12 17:46:39 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 02:46:39.242787+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 17:46:45 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 02:46:45.598244+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\AAPL_1d.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\AAPL_1d.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\ETH-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\BTC-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\ETH-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\DOT-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\DOT-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\ATOM-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:16 [WARNING] src.data.fetcher: Failed to save cache data_cache\BTC-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:17 [WARNING] src.data.fetcher: Failed to save cache data_cache\AVAX-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:18 [WARNING] src.data.fetcher: Failed to save cache data_cache\ATOM-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:18 [WARNING] src.data.fetcher: Failed to save cache data_cache\AVAX-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:18 [WARNING] src.data.fetcher: Failed to save cache data_cache\ADA-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:18 [WARNING] src.data.fetcher: Failed to save cache data_cache\ADA-USD_1h.parquet: `Import pyarrow` failed. pyarrow is required for parquet support. Use pip or conda to install the pyarrow package.
+2026-09-12 17:50:26 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.0% от цены входа
+2026-09-12 17:50:26 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.8% от цены входа
+2026-09-12 17:50:26 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 10.9% от цены входа
+2026-09-12 17:50:30 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 02:50:30.047359+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 17:51:07 [WARNING] src.risk.risk_manager: Предупреждение: Стоп-лосс слишком далеко: 11.1% от цены входа
+2026-09-12 17:51:42 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 02:51:42.922174+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 17:51:47 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 02:51:47.006804+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 21:44:06 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 06:44:06.823733+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 21:44:10 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 06:44:10.113845+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 22:16:36 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 07:16:36.391002+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд
+2026-09-12 22:16:39 [WARNING] src.portfolio.state: Портфель на паузе до 2026-09-13 07:16:39.902254+00:00 (12.0 часов). Причина: Серия убытков: 5 подряд

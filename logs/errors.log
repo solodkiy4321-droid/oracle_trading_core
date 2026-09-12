@@ -1,2 +1,238 @@
 2026-09-11 19:16:22 [ERROR] yfinance: $MATIC-USD: possibly delisted; no price data found  (period=730d)
 2026-09-11 19:47:48 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 23:02:01 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 23:18:07 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-11 23:29:46 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-12 17:43:11 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
+2026-09-12 17:43:11 [ERROR] root: Worker crash for BTC-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [ERROR] root: Worker crash for ATOM-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [ERROR] root: Worker crash for ADA-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:11 [ERROR] root: Worker crash for AVAX-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:12 [ERROR] root: Worker crash for ETH-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:13 [ERROR] root: Worker crash for DOT-USD: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:43:13 [ERROR] root: Worker crash for AAPL: Сумма базовых весов должна быть 1.0, получено 2.0000
+Traceback (most recent call last):
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 252, in run_backtest_worker
+    return asyncio.run(run_backtest_async(**args))
+           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 205, in run
+    return runner.run(main)
+           ~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\runners.py", line 128, in run
+    return self._loop.run_until_complete(task)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 720, in run_until_complete
+    return future.result()
+           ~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\main.py", line 152, in run_backtest_async
+    engine = TradingEngine(config)
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 61, in __init__
+    self._init_confluence()
+    ~~~~~~~~~~~~~~~~~~~~~^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\engine\trading_engine.py", line 132, in _init_confluence
+    self.confluence.set_base_weights(self.profile.weights_override)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\engine.py", line 124, in set_base_weights
+    self._weight_manager = WeightManager(base_weights=weights)
+                           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 60, in __init__
+    self._validate_weights(self._base_weights)
+    ~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Misha.DESKTOP-7LPKTJM\Desktop\oracle_trading_core\src\confluence\weight_manager.py", line 66, in _validate_weights
+    raise ValueError(
+        f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+    )
+ValueError: Сумма базовых весов должна быть 1.0, получено 2.0000
+2026-09-12 17:44:08 [ERROR] yfinance: $UNI-USD: possibly delisted; no price data found  (period=730d)
