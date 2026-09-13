@@ -1,14 +1,16 @@
 """Профили инструментов (5 крипто-символов).
 
-Per-symbol фильтры, оптимизированные через symbol_filter_optimization:
+Per-symbol фильтры + per-symbol веса анализаторов.
 
-| Symbol | 1d_mode      | chop | PnL$   | Sharpe |
-|--------|--------------|------|--------|--------|
-| BTC    | baseline     | ON   | +3474  | 0.252  |
-| ETH    | baseline     | ON   | +1911  | 0.165  |
-| ADA    | none         | off  | +5322  | 0.244  |
-| DOT    | none         | off  | +5226  | 0.256  |
-| ATOM   | drawdown_10  | ON   | +3706  | 0.191  |
+Веса оптимизированы через weights_sweep_per_symbol:
+
+| Symbol | trend | elliott | volat | volume | PnL$   |
+|--------|-------|---------|-------|--------|--------|
+| BTC    | 0.0   | 0.7     | 0.0   | 0.3    | +5396  |
+| ETH    | 0.6   | 0.2     | 0.1   | 0.1    | +5264  |
+| ADA    | 0.8   | 0.0     | 0.1   | 0.1    | +5298  |
+| DOT    | 0.5   | 0.2     | 0.1   | 0.2    | +5362  |
+| ATOM   | 0.4   | 0.3     | 0.0   | 0.3    | +5230  |
 """
 
 import logging
@@ -67,7 +69,10 @@ class SymbolProfile:
         if self.weights_override is not None:
             total = sum(self.weights_override.values())
             if abs(total - 1.0) > 1e-6:
-                raise ValueError("Сумма weights_override = 1.0")
+                raise ValueError(
+                    f"Сумма weights_override = 1.0, "
+                    f"получено {total:.4f}"
+                )
 
 
 class SymbolProfileRegistry:
@@ -104,13 +109,6 @@ class SymbolProfileRegistry:
 def create_default_registry() -> SymbolProfileRegistry:
     registry = SymbolProfileRegistry()
 
-    base_weights = {
-        "trend": 0.35,
-        "elliott_wave": 0.30,
-        "volatility": 0.20,
-        "volume": 0.15,
-    }
-
     registry.register(
         "BTC-USD",
         SymbolProfile(
@@ -124,8 +122,13 @@ def create_default_registry() -> SymbolProfileRegistry:
             regime_1d_filter_mode="baseline",
             long_only=False,
             gate_mode_override=None,
-            weights_override=dict(base_weights),
-            notes="BTC: 2h, atr=2.0 rr=3.0 chop=ON 1d=baseline (+$3474)",
+            weights_override={
+                "trend": 0.0,
+                "elliott_wave": 0.7,
+                "volatility": 0.0,
+                "volume": 0.3,
+            },
+            notes="BTC: 2h, atr=2.0 rr=3.0 chop=ON 1d=baseline weights=e0.7+v0.3 (+$5396)",
         ),
     )
 
@@ -142,8 +145,13 @@ def create_default_registry() -> SymbolProfileRegistry:
             regime_1d_filter_mode="baseline",
             long_only=False,
             gate_mode_override="balanced",
-            weights_override=dict(base_weights),
-            notes="ETH: 1h, atr=2.5 rr=2.5 chop=ON 1d=baseline gate=balanced (+$1911)",
+            weights_override={
+                "trend": 0.6,
+                "elliott_wave": 0.2,
+                "volatility": 0.1,
+                "volume": 0.1,
+            },
+            notes="ETH: 1h, atr=2.5 rr=2.5 chop=ON 1d=baseline gate=balanced weights=t0.6 (+$5264)",
         ),
     )
 
@@ -160,8 +168,13 @@ def create_default_registry() -> SymbolProfileRegistry:
             regime_1d_filter_mode="none",
             long_only=False,
             gate_mode_override=None,
-            weights_override=dict(base_weights),
-            notes="ADA: 1h, atr=3.0 rr=2.5 chop=off 1d=none (+$5322)",
+            weights_override={
+                "trend": 0.8,
+                "elliott_wave": 0.0,
+                "volatility": 0.1,
+                "volume": 0.1,
+            },
+            notes="ADA: 1h, atr=3.0 rr=2.5 chop=off 1d=none weights=t0.8 (+$5298)",
         ),
     )
 
@@ -178,8 +191,13 @@ def create_default_registry() -> SymbolProfileRegistry:
             regime_1d_filter_mode="none",
             long_only=False,
             gate_mode_override=None,
-            weights_override=dict(base_weights),
-            notes="DOT: 1h, atr=2.5 rr=2.5 chop=off 1d=none (+$5226)",
+            weights_override={
+                "trend": 0.5,
+                "elliott_wave": 0.2,
+                "volatility": 0.1,
+                "volume": 0.2,
+            },
+            notes="DOT: 1h, atr=2.5 rr=2.5 chop=off 1d=none weights=t0.5 (+$5362)",
         ),
     )
 
@@ -196,8 +214,13 @@ def create_default_registry() -> SymbolProfileRegistry:
             regime_1d_filter_mode="drawdown_10",
             long_only=False,
             gate_mode_override="aggressive",
-            weights_override=dict(base_weights),
-            notes="ATOM: 1h, atr=4.0 rr=3.5 chop=ON 1d=drawdown_10 gate=aggressive (+$3706)",
+            weights_override={
+                "trend": 0.4,
+                "elliott_wave": 0.3,
+                "volatility": 0.0,
+                "volume": 0.3,
+            },
+            notes="ATOM: 1h, atr=4.0 rr=3.5 chop=ON 1d=drawdown_10 gate=aggressive weights=t0.4 (+$5230)",
         ),
     )
 

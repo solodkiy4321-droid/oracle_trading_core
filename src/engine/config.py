@@ -29,6 +29,7 @@ class EngineConfig:
     enable_support_resistance: bool = False
     enable_momentum: bool = False
     enable_indicators: bool = False
+    enable_mean_reversion: bool = False
 
     gate_mode: str = "aggressive"
 

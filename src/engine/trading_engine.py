@@ -1,11 +1,4 @@
-"""Trading Engine: 4 анализатора + CHOP + long_only + per-symbol 1d режим.
-
-Поддерживаемые режимы 1d-фильтра:
-- "none":         без фильтра
-- "baseline":     RegimeDetector (SMA200 + ADX)
-- "drawdown_10":  цена упала >10% за 30 дней -> BEAR
-- "sma200_only":  цена vs SMA200
-"""
+"""Trading Engine: 4 анализатора + CHOP + long_only + per-symbol 1d режим."""
 
 import logging
 from dataclasses import dataclass, field
@@ -167,15 +160,6 @@ class TradingEngine:
         self.regime_detector = RegimeDetector()
 
     def _get_regime_1d(self, current_time) -> MarketRegime:
-        """
-        Определяет режим 1d с учётом per-symbol режима.
-
-        Режимы:
-        - "none":         без фильтра -> CHOP
-        - "baseline":     RegimeDetector (SMA200 + ADX)
-        - "drawdown_10":  цена упала >10% за 30 дней -> BEAR
-        - "sma200_only":  цена vs SMA200
-        """
         mode = self.profile.regime_1d_filter_mode
 
         if mode == "none":

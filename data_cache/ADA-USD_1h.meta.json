@@ -1,9 +1,9 @@
 {
   "symbol": "ADA-USD",
   "timeframe": "1h",
-  "fetched_at": 1789248985.4381351,
-  "fetched_at_iso": "2026-09-12T21:36:25.438135+00:00",
-  "rows": 17328,
+  "fetched_at": 1789324765.8620596,
+  "fetched_at_iso": "2026-09-13T18:39:25.862060+00:00",
+  "rows": 17325,
   "source": "yfinance",
   "period": "730d",
   "interval": "1h"

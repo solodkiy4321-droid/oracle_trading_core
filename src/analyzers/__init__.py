@@ -2,17 +2,18 @@
 
 Активные (4):
 - ТРЕНД:          TrendAnalyzer (EMA200 + ADX)
-- ПАТТЕРНЫ:       ElliottWaveAnalyzer (волны Эллиотта)
-- ВОЛАТИЛЬНОСТЬ:  VolatilityAnalyzer (ATR squeeze/expansion)
-- ОБЪЁМ:          VolumeAnalyzer (OBV + дивергенции)
+- ПАТТЕРНЫ:       ElliottWaveAnalyzer
+- ВОЛАТИЛЬНОСТЬ:  VolatilityAnalyzer
+- ОБЪЁМ:          VolumeAnalyzer
 
-Архив (не активны, но модули сохранены):
-- HarmonicAnalyzer — adversarial к trend (dir_agree 0.06), PF 1.13
-- SRAnalyzer — PF 1.06, убыточен с комиссией
-- MomentumAnalyzer — гипотеза провалилась
+Архив (не активны):
+- HarmonicAnalyzer
+- SRAnalyzer
+- MomentumAnalyzer
+- MeanReversionAnalyzer
 
 Фильтр (не анализатор):
-- TrendFilter (SMA200) — штраф для elliott_wave
+- TrendFilter (SMA200)
 """
 
 from .base import BaseAnalyzer
