@@ -17,10 +17,17 @@
 Confidence — сила перегрева:
 - Чем дальше цена от SMA и чем сильнее RSI — тем выше confidence.
 - Чем дольше в боковике — тем выше confidence.
+
+Интерфейс:
+Принимает indicators (IndicatorCache) и bar_index как все остальные
+анализаторы, чтобы SignalCollector не делал fallback-вызов.
+Сейчас indicators не используется (пересчитывает индикаторы сам),
+но сигнатура совпадает с BaseAnalyzer — это устраняет TypeError
+в SignalCollector._run_one.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 import pandas as pd
@@ -116,7 +123,22 @@ class MeanReversionAnalyzer(BaseAnalyzer):
 
         return True, adx_val, crosses
 
-    async def analyze(self, data: pd.DataFrame) -> Optional[AnalyzerSignal]:
+    async def analyze(
+        self,
+        data: pd.DataFrame,
+        indicators: Optional[Any] = None,
+        bar_index: Optional[int] = None,
+    ) -> Optional[AnalyzerSignal]:
+        """
+        Args:
+            data: DataFrame с OHLCV
+            indicators: IndicatorCache (не используется, но принимается
+                        для совместимости с SignalCollector)
+            bar_index: абсолютный индекс бара (не используется)
+
+        Returns:
+            AnalyzerSignal или None
+        """
         if data is None or len(data) < 50:
             return None
 

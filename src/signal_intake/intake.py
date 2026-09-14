@@ -1,6 +1,8 @@
 """Главный класс модуля приёма сигналов."""
 
 import logging
+from typing import Optional, Any
+
 import pandas as pd
 
 from src.analyzers.base import BaseAnalyzer
@@ -16,10 +18,7 @@ class SignalIntake:
     """
     Фасад модуля приёма сигналов.
 
-    Объединяет:
-    - SignalCollector: сбор сигналов от анализаторов
-    - normalize: приведение к единому формату
-    - validate: проверка корректности
+    Поддерживает опциональный IndicatorCache + bar_index.
     """
 
     def __init__(self, timeout: float = 5.0):
@@ -32,7 +31,6 @@ class SignalIntake:
         self._collector.unregister(analyzer)
 
     def clear(self) -> None:
-        """Удалить все зарегистрированные анализаторы."""
         self._collector.clear()
 
     @property
@@ -48,10 +46,14 @@ class SignalIntake:
         data: pd.DataFrame,
         symbol: str,
         timeframe: str,
+        indicators: Optional[Any] = None,
+        bar_index: Optional[int] = None,
     ) -> SignalBatch:
         logger.info("Начало приёма сигналов: %s %s", symbol, timeframe)
 
-        raw_signals, rejected_from_collector, stats = await self._collector.collect_all(data)
+        raw_signals, rejected_from_collector, stats = await self._collector.collect_all(
+            data, indicators=indicators, bar_index=bar_index,
+        )
 
         valid_signals = []
         rejected = list(rejected_from_collector)
@@ -60,7 +62,9 @@ class SignalIntake:
             try:
                 normalized = normalize(raw, symbol=symbol, timeframe=timeframe)
             except Exception as e:
-                logger.exception("Ошибка нормализации сигнала от %s: %s", raw.source, e)
+                logger.exception(
+                    "Ошибка нормализации сигнала от %s: %s", raw.source, e,
+                )
                 rejected.append(RejectedSignal(
                     signal=raw,
                     reason=f"normalize error: {e}",
@@ -70,7 +74,9 @@ class SignalIntake:
 
             is_valid, error = validate(normalized)
             if not is_valid:
-                logger.warning("Сигнал от %s отвергнут: %s", normalized.source, error)
+                logger.warning(
+                    "Сигнал от %s отвергнут: %s", normalized.source, error,
+                )
                 rejected.append(RejectedSignal(
                     signal=normalized,
                     reason=error,

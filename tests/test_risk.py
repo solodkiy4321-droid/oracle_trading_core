@@ -1,4 +1,11 @@
-"""Тесты Risk Manager."""
+"""Тесты Risk Manager.
+
+Актуальная версия TakeProfitCalculator:
+- Один уровень TP с множителем default_ratio.
+- Никакого параметра levels в __init__.
+"""
+
+import logging
 
 import numpy as np
 import pandas as pd
@@ -11,13 +18,12 @@ from src.risk.position_sizer import PositionSizer
 from src.risk.risk_manager import RiskManager
 
 
-# ============ Фикстуры ============
+# ---------- Фикстуры ----------
 
 def make_data(n: int = 100, atr_target: float = 2.0) -> pd.DataFrame:
     """Создаёт данные с заданным ATR."""
     np.random.seed(42)
     close = 100 + np.cumsum(np.random.randn(n) * 0.5)
-    # Добавляем волатильность для ATR
     high = close + atr_target / 2 + np.abs(np.random.randn(n) * 0.3)
     low = close - atr_target / 2 - np.abs(np.random.randn(n) * 0.3)
     return pd.DataFrame({
@@ -29,13 +35,15 @@ def make_data(n: int = 100, atr_target: float = 2.0) -> pd.DataFrame:
     })
 
 
-# ============ StopLossCalculator ============
+# ---------- StopLossCalculator ----------
 
 def test_sl_long():
     """SL для BUY ниже entry."""
     calc = StopLossCalculator(atr_period=14, atr_multiplier=1.5)
     data = make_data()
-    result = calc.calculate(entry_price=100.0, direction=SignalDirection.BUY, data=data)
+    result = calc.calculate(
+        entry_price=100.0, direction=SignalDirection.BUY, data=data,
+    )
 
     assert result is not None
     assert result.price < 100.0
@@ -47,7 +55,9 @@ def test_sl_short():
     """SL для SELL выше entry."""
     calc = StopLossCalculator(atr_period=14, atr_multiplier=1.5)
     data = make_data()
-    result = calc.calculate(entry_price=100.0, direction=SignalDirection.SELL, data=data)
+    result = calc.calculate(
+        entry_price=100.0, direction=SignalDirection.SELL, data=data,
+    )
 
     assert result is not None
     assert result.price > 100.0
@@ -58,7 +68,9 @@ def test_sl_hold_returns_none():
     """HOLD не даёт SL."""
     calc = StopLossCalculator()
     data = make_data()
-    result = calc.calculate(entry_price=100.0, direction=SignalDirection.HOLD, data=data)
+    result = calc.calculate(
+        entry_price=100.0, direction=SignalDirection.HOLD, data=data,
+    )
     assert result is None
 
 
@@ -66,27 +78,33 @@ def test_sl_insufficient_data():
     """Недостаточно данных — None."""
     calc = StopLossCalculator(atr_period=14)
     data = make_data(n=10)
-    result = calc.calculate(entry_price=100.0, direction=SignalDirection.BUY, data=data)
+    result = calc.calculate(
+        entry_price=100.0, direction=SignalDirection.BUY, data=data,
+    )
     assert result is None
 
 
-# ============ TakeProfitCalculator ============
+# ---------- TakeProfitCalculator (актуальный API) ----------
 
-def test_tp_long():
-    """TP для BUY выше entry."""
+def test_tp_long_default_ratio():
+    """
+    TP для BUY выше entry.
+    default_ratio=2.0, sl_distance=2.0 → TP = 100 + 2.0×2.0 = 104.0.
+    """
     calc = TakeProfitCalculator(default_ratio=2.0)
     result = calc.calculate(
         entry_price=100.0, sl_distance=2.0, direction=SignalDirection.BUY,
     )
 
     assert result is not None
-    assert len(result.levels) > 0
+    assert len(result.levels) == 1
     assert result.primary_price > 100.0
-    # Первый уровень: 100 + 2.0 × 1.0 = 102.0
-    assert abs(result.levels[0].price - 102.0) < 1e-6
+    assert abs(result.levels[0].price - 104.0) < 1e-6
+    assert abs(result.levels[0].ratio - 2.0) < 1e-6
+    assert abs(result.levels[0].percentage - 1.0) < 1e-6
 
 
-def test_tp_short():
+def test_tp_short_default_ratio():
     """TP для SELL ниже entry."""
     calc = TakeProfitCalculator(default_ratio=2.0)
     result = calc.calculate(
@@ -95,21 +113,32 @@ def test_tp_short():
 
     assert result is not None
     assert result.primary_price < 100.0
+    assert abs(result.levels[0].price - 96.0) < 1e-6
 
 
-def test_tp_multiple_levels():
-    """Несколько уровней TP."""
-    calc = TakeProfitCalculator(levels=[(1.0, 0.5), (2.0, 0.3), (3.0, 0.2)])
+def test_tp_custom_ratio():
+    """Кастомный default_ratio влияет на TP."""
+    calc = TakeProfitCalculator(default_ratio=3.0)
     result = calc.calculate(
         entry_price=100.0, sl_distance=2.0, direction=SignalDirection.BUY,
     )
 
     assert result is not None
-    assert len(result.levels) == 3
-    # Проверяем пропорции
-    assert abs(result.levels[0].price - 102.0) < 1e-6  # 1R
-    assert abs(result.levels[1].price - 104.0) < 1e-6  # 2R
-    assert abs(result.levels[2].price - 106.0) < 1e-6  # 3R
+    assert abs(result.levels[0].price - 106.0) < 1e-6
+    assert abs(result.levels[0].ratio - 3.0) < 1e-6
+
+
+def test_tp_ratios_override():
+    """Передача ratios переопределяет default_ratio (первый элемент)."""
+    calc = TakeProfitCalculator(default_ratio=2.0)
+    result = calc.calculate(
+        entry_price=100.0, sl_distance=2.0, direction=SignalDirection.BUY,
+        ratios=[1.5, 3.0],
+    )
+
+    assert result is not None
+    assert abs(result.levels[0].price - 103.0) < 1e-6
+    assert abs(result.levels[0].ratio - 1.5) < 1e-6
 
 
 def test_tp_zero_distance():
@@ -121,7 +150,16 @@ def test_tp_zero_distance():
     assert result is None
 
 
-# ============ PositionSizer ============
+def test_tp_hold_returns_none():
+    """HOLD — None."""
+    calc = TakeProfitCalculator()
+    result = calc.calculate(
+        entry_price=100.0, sl_distance=2.0, direction=SignalDirection.HOLD,
+    )
+    assert result is None
+
+
+# ---------- PositionSizer ----------
 
 def test_position_size_basic():
     """Базовый расчёт размера позиции."""
@@ -131,8 +169,6 @@ def test_position_size_basic():
     )
 
     assert result is not None
-    # Risk = 10000 × 0.01 = 100
-    # Size = 100 / 2.0 = 50
     assert abs(result.risk_amount - 100.0) < 1e-6
     assert abs(result.size - 50.0) < 1e-6
 
@@ -153,22 +189,17 @@ def test_position_size_zero_stop():
 
 def test_position_size_high_leverage_warning(caplog):
     """Высокое плечо даёт предупреждение."""
-    import logging
     caplog.set_level(logging.WARNING)
 
     sizer = PositionSizer(risk_per_trade_pct=0.05, max_position_pct=10.0)
     result = sizer.calculate(equity=1000.0, entry_price=100.0, stop_distance=0.5)
 
     assert result is not None
-    # Position value = size × entry
-    # size = (1000 × 0.05) / 0.5 = 100
-    # value = 100 × 100 = 10000
-    # leverage = 10000 / 1000 = 10x
     assert result.leverage > 3.0
     assert any("Высокое плечо" in r.message for r in caplog.records)
 
 
-# ============ RiskManager ============
+# ---------- RiskManager ----------
 
 def test_risk_manager_full_plan():
     """Полный торговый план."""

@@ -1,9 +1,9 @@
 {
   "symbol": "ETH-USD",
   "timeframe": "1h",
-  "fetched_at": 1789324764.4421387,
-  "fetched_at_iso": "2026-09-13T18:39:24.442139+00:00",
-  "rows": 17325,
+  "fetched_at": 1789370843.3013973,
+  "fetched_at_iso": "2026-09-14T07:27:23.301397+00:00",
+  "rows": 17314,
   "source": "yfinance",
   "period": "730d",
   "interval": "1h"

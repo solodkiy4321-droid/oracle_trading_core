@@ -1,3 +1,15 @@
+"""Загрузка рыночных данных с локальным кэшем.
+
+Поддерживает два формата кэша: parquet (по умолчанию) и csv.
+Если pyarrow недоступен — автоматически переключается на csv,
+чтобы кэш продолжал работать, а не падал молча.
+
+Фикс Бага C:
+- Раньше: если pyarrow не импортируется, to_parquet падает,
+  кэш не пишется, но бэктест продолжается молча.
+- Теперь: при отсутствии pyarrow формат кэша = csv, и всё работает.
+"""
+
 import json
 import logging
 import os
@@ -5,12 +17,12 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple
 
 import pandas as pd
-import yfinance as yf
 
 logger = logging.getLogger(__name__)
+
 
 CACHE_TTL_BY_TIMEFRAME = {
     "1m": 3600,
@@ -24,7 +36,28 @@ CACHE_TTL_BY_TIMEFRAME = {
 }
 
 REQUIRED_COLUMNS = ["open", "high", "low", "close", "volume"]
-CACHE_FORMAT = "parquet"
+
+# Форматы кэша
+CACHE_FORMAT_PARQUET = "parquet"
+CACHE_FORMAT_CSV = "csv"
+DEFAULT_CACHE_FORMAT = CACHE_FORMAT_PARQUET
+
+
+def _detect_cache_format() -> str:
+    """
+    Определяет доступный формат кэша.
+
+    Если pyarrow импортируется — parquet.
+    Иначе — csv (fallback).
+    """
+    try:
+        import pyarrow  # noqa: F401
+        return CACHE_FORMAT_PARQUET
+    except Exception as e:
+        logger.warning(
+            "pyarrow недоступен (%s) — переключаюсь на CSV-кэш", e,
+        )
+        return CACHE_FORMAT_CSV
 
 
 @dataclass
@@ -36,6 +69,7 @@ class CacheMeta:
     source: str = "yfinance"
     period: str = ""
     interval: str = ""
+    cache_format: str = ""
 
     def to_dict(self) -> dict:
         return {
@@ -47,11 +81,14 @@ class CacheMeta:
             "source": self.source,
             "period": self.period,
             "interval": self.interval,
+            "cache_format": self.cache_format,
         }
 
     def _iso(self) -> str:
         try:
-            return datetime.fromtimestamp(self.fetched_at, tz=timezone.utc).isoformat()
+            return datetime.fromtimestamp(
+                self.fetched_at, tz=timezone.utc,
+            ).isoformat()
         except Exception:
             return ""
 
@@ -65,6 +102,7 @@ class CacheMeta:
             source=d.get("source", "yfinance"),
             period=d.get("period", ""),
             interval=d.get("interval", ""),
+            cache_format=d.get("cache_format", ""),
         )
 
 
@@ -97,17 +135,47 @@ class MarketDataFetcher:
         cache_dir: str = "data_cache",
         cache_enabled: bool = True,
         cache_ttl_override: Optional[int] = None,
+        cache_format: Optional[str] = None,
     ):
+        """
+        Args:
+            cache_dir: директория для кэша
+            cache_enabled: включён ли кэш
+            cache_ttl_override: ручной TTL (сек), иначе — по таймфрейму
+            cache_format: "parquet" / "csv" / None (авто-детект)
+        """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
         self.cache_enabled = cache_enabled
         self.cache_ttl_override = cache_ttl_override
 
+        if cache_format is None:
+            self.cache_format = _detect_cache_format()
+        else:
+            self.cache_format = cache_format
+
+        # Проверяем, что yfinance импортируется (для fetch, а не для кэша)
+        self._yf = None
+        if self.cache_enabled:
+            logger.info(
+                "MarketDataFetcher: cache_dir=%s, format=%s",
+                self.cache_dir, self.cache_format,
+            )
+
+    def _yf_module(self):
+        """Ленивая загрузка yfinance — только когда реально нужен."""
+        if self._yf is None:
+            import yfinance as yf
+            self._yf = yf
+        return self._yf
+
     def _safe_name(self, symbol: str) -> str:
         return symbol.replace("/", "_").replace("\\", "_").replace(":", "_")
 
     def _cache_path(self, symbol: str, timeframe: str) -> Path:
-        return self.cache_dir / f"{self._safe_name(symbol)}_{timeframe}.{CACHE_FORMAT}"
+        return self.cache_dir / (
+            f"{self._safe_name(symbol)}_{timeframe}.{self.cache_format}"
+        )
 
     def _meta_path(self, symbol: str, timeframe: str) -> Path:
         return self.cache_dir / f"{self._safe_name(symbol)}_{timeframe}.meta.json"
@@ -141,28 +209,50 @@ class MarketDataFetcher:
 
         return True
 
-    def _load_from_cache(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
-        cache_path = self._cache_path(symbol, timeframe)
+    def _read_dataframe(self, path: Path) -> Optional[pd.DataFrame]:
+        """Читает df из кэша в зависимости от формата."""
         try:
-            df = pd.read_parquet(cache_path)
+            if self.cache_format == CACHE_FORMAT_PARQUET:
+                return pd.read_parquet(path)
+            else:
+                return pd.read_csv(path, index_col=0, parse_dates=True)
         except Exception as e:
-            logger.warning("Broken cache %s: %s. Refetching.", cache_path, e)
+            logger.warning("Broken cache %s: %s. Refetching.", path, e)
             try:
-                cache_path.unlink()
+                path.unlink()
             except OSError:
                 pass
             return None
 
-        if df is None or df.empty:
+    def _write_dataframe(self, df: pd.DataFrame, path: Path) -> None:
+        """Пишет df в кэш в зависимости от формата."""
+        if self.cache_format == CACHE_FORMAT_PARQUET:
+            df.to_parquet(path, engine="pyarrow", compression="snappy")
+        else:
+            df.to_csv(path)
+
+    def _load_from_cache(self, symbol: str, timeframe: str) -> Optional[pd.DataFrame]:
+        cache_path = self._cache_path(symbol, timeframe)
+        df = self._read_dataframe(cache_path)
+        if df is None:
+            return None
+
+        if df.empty:
             logger.warning("Empty cache %s. Refetching.", cache_path)
             return None
 
         missing = [c for c in REQUIRED_COLUMNS if c not in df.columns]
         if missing:
-            logger.warning("Cache %s missing columns %s. Refetching.", cache_path, missing)
+            logger.warning(
+                "Cache %s missing columns %s. Refetching.",
+                cache_path, missing,
+            )
             return None
 
-        logger.info("Loaded from cache: %s %s (%d bars)", symbol, timeframe, len(df))
+        logger.info(
+            "Loaded from cache: %s %s (%d bars)",
+            symbol, timeframe, len(df),
+        )
         return df
 
     def _save_to_cache(
@@ -183,7 +273,7 @@ class MarketDataFetcher:
         tmp_meta = meta_path.with_suffix(meta_path.suffix + ".tmp")
 
         try:
-            df.to_parquet(tmp_cache, engine="pyarrow", compression="snappy")
+            self._write_dataframe(df, tmp_cache)
 
             meta = CacheMeta(
                 symbol=symbol,
@@ -193,6 +283,7 @@ class MarketDataFetcher:
                 source="yfinance",
                 period=period,
                 interval=interval,
+                cache_format=self.cache_format,
             )
             with open(tmp_meta, "w", encoding="utf-8") as f:
                 json.dump(meta.to_dict(), f, indent=2, ensure_ascii=False)
@@ -201,9 +292,10 @@ class MarketDataFetcher:
             os.replace(tmp_meta, meta_path)
 
             logger.debug(
-                "Saved to cache: %s %s (%d bars, %.1f KB)",
+                "Saved to cache: %s %s (%d bars, %.1f KB, format=%s)",
                 symbol, timeframe, len(df),
                 cache_path.stat().st_size / 1024,
+                self.cache_format,
             )
         except Exception as e:
             logger.warning("Failed to save cache %s: %s", cache_path, e)
@@ -253,8 +345,11 @@ class MarketDataFetcher:
         )
 
         try:
+            yf = self._yf_module()
             ticker = yf.Ticker(symbol)
-            df = ticker.history(period=period, interval=interval, auto_adjust=False)
+            df = ticker.history(
+                period=period, interval=interval, auto_adjust=False,
+            )
         except Exception as e:
             logger.exception("Fetch error %s: %s", symbol, e)
             if self.cache_enabled:
@@ -288,16 +383,14 @@ class MarketDataFetcher:
 
         logger.info("Fetched %d bars for %s %s", len(df), symbol, timeframe)
 
+        # Сохраняем полный набор в кэш (не только limit)
+        # ВАЖНО: больше НЕ делаем повторный запрос к yfinance
+        # (см. Баг D — раньше тут был if not force_refresh or True).
         try:
-            if not force_refresh or True:
-                full = ticker.history(period=period, interval=interval, auto_adjust=False)
-                if full is not None and not full.empty:
-                    full.columns = [c.lower() for c in full.columns]
-                    if all(c in full.columns for c in REQUIRED_COLUMNS):
-                        full = full[REQUIRED_COLUMNS].dropna().sort_index()
-                        self._save_to_cache(symbol, timeframe, full, period, interval)
+            if len(df) > 0:
+                self._save_to_cache(symbol, timeframe, df, period, interval)
         except Exception as e:
-            logger.debug("Failed to save full cache: %s", e)
+            logger.debug("Failed to save cache: %s", e)
 
         return df
 
@@ -324,10 +417,14 @@ class MarketDataFetcher:
             try:
                 with open(meta_path, "r", encoding="utf-8") as f:
                     meta = CacheMeta.from_dict(json.load(f))
+                fmt = meta.cache_format or self.cache_format
                 cache_path = self.cache_dir / (
-                    f"{self._safe_name(meta.symbol)}_{meta.timeframe}.{CACHE_FORMAT}"
+                    f"{self._safe_name(meta.symbol)}_{meta.timeframe}.{fmt}"
                 )
-                size_kb = cache_path.stat().st_size / 1024 if cache_path.exists() else 0
+                size_kb = (
+                    cache_path.stat().st_size / 1024
+                    if cache_path.exists() else 0
+                )
                 age_sec = time.time() - meta.fetched_at
                 ttl = self._get_ttl(meta.timeframe)
                 info.append({
@@ -338,6 +435,7 @@ class MarketDataFetcher:
                     "ttl_sec": ttl,
                     "is_fresh": age_sec <= ttl,
                     "size_kb": size_kb,
+                    "format": fmt,
                 })
             except Exception:
                 continue
@@ -347,7 +445,7 @@ class MarketDataFetcher:
         removed = 0
         pattern = f"{self._safe_name(symbol)}_*" if symbol else "*"
         for p in self.cache_dir.glob(pattern):
-            if p.suffix in (f".{CACHE_FORMAT}", ".json"):
+            if p.suffix in (".parquet", ".csv", ".json"):
                 try:
                     p.unlink()
                     removed += 1

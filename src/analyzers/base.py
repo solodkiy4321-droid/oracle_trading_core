@@ -1,41 +1,36 @@
 """Базовый класс для всех анализаторов."""
 
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Optional, Any
 import pandas as pd
 
 from src.models import AnalyzerSignal
 
 
 class BaseAnalyzer(ABC):
-    """
-    Абстрактный базовый класс анализатора.
-    
-    Все анализаторы должны наследоваться от этого класса
-    и реализовывать метод analyze().
-    """
+    """Абстрактный базовый класс анализатора."""
 
     def __init__(self, name: str):
-        """
-        Args:
-            name: Уникальное имя анализатора (используется для весов и логирования)
-        """
         self._name = name
 
     @property
     def name(self) -> str:
-        """Имя анализатора."""
         return self._name
 
     @abstractmethod
-    async def analyze(self, data: pd.DataFrame) -> Optional[AnalyzerSignal]:
+    async def analyze(
+        self,
+        data: pd.DataFrame,
+        indicators: Optional[Any] = None,
+        bar_index: Optional[int] = None,
+    ) -> Optional[AnalyzerSignal]:
         """
-        Проанализировать данные и вернуть сигнал.
-        
         Args:
             data: DataFrame с колонками open, high, low, close, volume
-            
+            indicators: IndicatorCache или None
+            bar_index: абсолютный индекс бара (для indicator cache)
+
         Returns:
-            AnalyzerSignal или None, если сигнал не найден
+            AnalyzerSignal или None
         """
         ...

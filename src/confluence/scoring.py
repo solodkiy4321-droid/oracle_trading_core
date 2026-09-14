@@ -1,4 +1,12 @@
-"""Система вычисления совокупного confluence score."""
+"""Система вычисления совокупного confluence score.
+
+Вход: список сигналов + словарь весов (сумма = 1.0 после
+нормализации в WeightManager).
+
+Выход: ScoringResult, где confluence_score — взвешенное среднее
+confidence по направлению, всегда в диапазоне [0, 1]. Это делает
+score сравнимым с порогами ConfluenceGate (0.50 / 0.65 / 0.75).
+"""
 
 import logging
 from dataclasses import dataclass, field
@@ -25,8 +33,13 @@ class ScoringSystem:
     """
     Вычисляет confluence score.
 
-    КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: сохраняем ПОЛНЫЙ reason от анализатора
+    Сохраняет ПОЛНЫЙ reason от анализатора
     (включая детали — паттерн, PRZ, уровень и т.д.).
+
+    score нормализуется на total_weight, поэтому:
+    - 0.0 — сигналов нет или они нулевой уверенности,
+    - 1.0 — все активные анализаторы дают confidence=1.0
+      в одну сторону.
     """
 
     def __init__(self, threshold: float = 0.40):
@@ -46,11 +59,11 @@ class ScoringSystem:
                 total_weight_used=0.0,
             )
 
-        bull_score = 0.0
-        bear_score = 0.0
+        bull_raw = 0.0
+        bear_raw = 0.0
         total_weight = 0.0
-        reasons = []
-        breakdown = {}
+        reasons: List[str] = []
+        breakdown: Dict[str, float] = {}
 
         for signal in signals:
             weight = weights.get(signal.source, 0.0)
@@ -60,9 +73,6 @@ class ScoringSystem:
             total_weight += weight
             contribution = signal.confidence * weight
 
-            # ВАЖНО: используем signal.reason (детальный) вместо
-            # синтетического "{source}: {direction} (conf=..., ...)"
-            # Это сохраняет паттерны harmonic, уровни S/R и т.д.
             detailed_reason = (
                 f"{signal.source}: {signal.direction.name} "
                 f"(conf={signal.confidence:.2f}, weight={weight:.2f}, "
@@ -70,15 +80,24 @@ class ScoringSystem:
             )
 
             if signal.direction == SignalDirection.BUY:
-                bull_score += contribution
+                bull_raw += contribution
                 reasons.append(detailed_reason)
                 breakdown[signal.source] = contribution
             elif signal.direction == SignalDirection.SELL:
-                bear_score += contribution
+                bear_raw += contribution
                 reasons.append(detailed_reason)
                 breakdown[signal.source] = -contribution
             else:
                 reasons.append(f"{signal.source}: HOLD")
+
+        # Нормализуем на суммарный вес активных сигналов.
+        # Если total_weight == 0 — никто не дал валидный сигнал.
+        if total_weight > 0:
+            bull_score = bull_raw / total_weight
+            bear_score = bear_raw / total_weight
+        else:
+            bull_score = 0.0
+            bear_score = 0.0
 
         if bull_score > bear_score and bull_score >= self.threshold:
             direction = SignalDirection.BUY
@@ -91,8 +110,10 @@ class ScoringSystem:
             confluence_score = max(bull_score, bear_score)
 
         logger.info(
-            "Confluence: direction=%s, bull=%.3f, bear=%.3f, score=%.3f",
+            "Confluence: direction=%s, bull=%.3f, bear=%.3f, score=%.3f, "
+            "total_weight=%.3f",
             direction.name, bull_score, bear_score, confluence_score,
+            total_weight,
         )
 
         return ScoringResult(

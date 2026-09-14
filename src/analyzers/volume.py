@@ -1,27 +1,12 @@
 """VolumeAnalyzer — подтверждение движения объёмом через OBV.
 
 Категория: ОБЪЁМ.
-Вопрос: «Подтверждает ли объём движение цены?»
 
-Принципы:
-- OBV (On-Balance Volume) — кумулятивный объём, растёт при росте цены, падает при падении.
-- Сигнал: дивергенция цены и OBV.
-- Цена делает новый максимум, OBV — нет → тренд слабый (SELL).
-- Цена делает новый минимум, OBV — нет → тренд слабый (BUY).
-- Дополнительно: OBV-тренд (наклон за N баров) — подтверждение направления.
-
-Не дублирует:
-- trend (EMA200 + ADX) — тот про направление и силу
-- momentum (RSI) — тот про перегрев в боковике
-- volatility (ATR) — тот про размах
-
-Confidence — сила дивергенции:
-- Чем больше расхождение цены и OBV — тем выше confidence.
-- Минимум — подтверждение тренда (OBV растёт вместе с ценой).
+Использует IndicatorCache если передан — иначе считает сам.
 """
 
 import logging
-from typing import Optional, List
+from typing import Optional, Any, List
 
 import numpy as np
 import pandas as pd
@@ -50,9 +35,7 @@ class VolumeAnalyzer(BaseAnalyzer):
         self._min_confidence = min_confidence
         self._max_confidence = max_confidence
 
-    def _detect_bearish_divergence(
-        self, price: pd.Series, obv: pd.Series
-    ) -> float:
+    def _detect_bearish_divergence(self, price: pd.Series, obv: pd.Series) -> float:
         lookback = self._divergence_lookback
         if len(price) < lookback or len(obv) < lookback:
             return 0.0
@@ -86,9 +69,7 @@ class VolumeAnalyzer(BaseAnalyzer):
         score = min(1.0, 0.5 * price_gain * 100 + 0.5 * min(obv_loss, 1.0))
         return max(0.0, min(score, 1.0))
 
-    def _detect_bullish_divergence(
-        self, price: pd.Series, obv: pd.Series
-    ) -> float:
+    def _detect_bullish_divergence(self, price: pd.Series, obv: pd.Series) -> float:
         lookback = self._divergence_lookback
         if len(price) < lookback or len(obv) < lookback:
             return 0.0
@@ -147,82 +128,96 @@ class VolumeAnalyzer(BaseAnalyzer):
 
         return max(-1.0, min(1.0, slope_norm * 10.0))
 
-    async def analyze(self, data: pd.DataFrame) -> Optional[AnalyzerSignal]:
-        if data is None or len(data) < self._divergence_lookback + 10:
-            return None
+    async def analyze(
+        self,
+        data: pd.DataFrame,
+        indicators: Optional[Any] = None,
+    ) -> Optional[AnalyzerSignal]:
+        min_bars = self._divergence_lookback + 10
 
-        if "volume" not in data.columns:
-            return None
+        if indicators is not None:
+            if indicators.n < min_bars:
+                return None
 
-        try:
+            obv_series = indicators.obv
+            price_series = indicators.close_series
+
+            if obv_series is None or len(obv_series) < min_bars:
+                return None
+        else:
+            if data is None or len(data) < min_bars:
+                return None
+            if "volume" not in data.columns:
+                return None
+
             close = data["close"]
             volume = data["volume"]
 
             if volume.abs().sum() == 0:
                 return None
 
-            obv = ta.obv(close, volume)
-            if obv is None or len(obv) == 0:
+            obv_series = ta.obv(close, volume)
+            if obv_series is None or len(obv_series) == 0:
                 return None
+            price_series = close
 
-            bearish = self._detect_bearish_divergence(close, obv)
-            bullish = self._detect_bullish_divergence(close, obv)
-            slope = self._obv_slope_score(obv)
+        bearish = self._detect_bearish_divergence(price_series, obv_series)
+        bullish = self._detect_bullish_divergence(price_series, obv_series)
+        slope = self._obv_slope_score(obv_series)
 
-            direction: Optional[SignalDirection] = None
-            zone = ""
-            base_conf = 0.0
+        direction: Optional[SignalDirection] = None
+        zone = ""
+        base_conf = 0.0
 
-            if bearish >= bullish and bearish >= 0.3:
-                direction = SignalDirection.SELL
-                zone = "bearish_divergence"
-                base_conf = bearish
-            elif bullish > bearish and bullish >= 0.3:
-                direction = SignalDirection.BUY
-                zone = "bullish_divergence"
-                base_conf = bullish
-            elif slope > 0.3:
-                direction = SignalDirection.BUY
-                zone = "obv_uptrend"
-                base_conf = min(slope, 1.0) * 0.6
-            elif slope < -0.3:
-                direction = SignalDirection.SELL
-                zone = "obv_downtrend"
-                base_conf = min(abs(slope), 1.0) * 0.6
+        if bearish >= bullish and bearish >= 0.3:
+            direction = SignalDirection.SELL
+            zone = "bearish_divergence"
+            base_conf = bearish
+        elif bullish > bearish and bullish >= 0.3:
+            direction = SignalDirection.BUY
+            zone = "bullish_divergence"
+            base_conf = bullish
+        elif slope > 0.3:
+            direction = SignalDirection.BUY
+            zone = "obv_uptrend"
+            base_conf = min(slope, 1.0) * 0.6
+        elif slope < -0.3:
+            direction = SignalDirection.SELL
+            zone = "obv_downtrend"
+            base_conf = min(abs(slope), 1.0) * 0.6
 
-            if direction is None:
-                return None
-
-            confidence = 0.3 + 0.5 * base_conf
-            confidence = max(self._min_confidence, min(confidence, self._max_confidence))
-
-            if confidence < self._min_confidence:
-                return None
-
-            reason = (
-                f"VOLUME {zone}: "
-                f"bearish_div={bearish:.2f}, "
-                f"bullish_div={bullish:.2f}, "
-                f"obv_slope={slope:+.2f}, "
-                f"conf={confidence:.2f}"
-            )
-
-            return AnalyzerSignal(
-                direction=direction,
-                confidence=confidence,
-                reason=reason,
-                metadata={
-                    "bearish_divergence": bearish,
-                    "bullish_divergence": bullish,
-                    "obv_slope": slope,
-                    "zone": zone,
-                    "divergence_lookback": self._divergence_lookback,
-                    "obv_slope_period": self._obv_slope_period,
-                    "base_confidence": base_conf,
-                },
-                source=self.name,
-            )
-
-        except Exception as e:
-            logger.exception("VolumeAnalyzer error: %s", e)
+        if direction is None:
             return None
+
+        confidence = 0.3 + 0.5 * base_conf
+        confidence = max(
+            self._min_confidence,
+            min(confidence, self._max_confidence),
+        )
+
+        if confidence < self._min_confidence:
+            return None
+
+        reason = (
+            f"VOLUME {zone}: "
+            f"bearish_div={bearish:.2f}, "
+            f"bullish_div={bullish:.2f}, "
+            f"obv_slope={slope:+.2f}, "
+            f"conf={confidence:.2f}"
+        )
+
+        return AnalyzerSignal(
+            direction=direction,
+            confidence=confidence,
+            reason=reason,
+            metadata={
+                "bearish_divergence": bearish,
+                "bullish_divergence": bullish,
+                "obv_slope": slope,
+                "zone": zone,
+                "divergence_lookback": self._divergence_lookback,
+                "obv_slope_period": self._obv_slope_period,
+                "base_confidence": base_conf,
+            },
+            source=self.name,
+        )

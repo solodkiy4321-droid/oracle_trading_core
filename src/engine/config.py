@@ -1,4 +1,10 @@
-"""Конфигурация Trading Engine."""
+"""Конфигурация Trading Engine.
+
+ВАЖНО: значения daily_loss_limit_pct, daily_profit_target_pct,
+max_drawdown_pct, pause_after_consecutive_losses, pause_duration_hours
+синхронизированы с дефолтами RiskLimits (src/portfolio/limits.py).
+При изменении здесь — обновить и там, или наоборот.
+"""
 
 from dataclasses import dataclass
 from typing import Optional
@@ -38,12 +44,17 @@ class EngineConfig:
     atr_multiplier: float = 2.0
     default_rr_ratio: float = 3.0
 
+    # После TP1 SL переводится в безубыток. Работает.
     breakeven_after_tp: int = 1
+    # Trailing после TP2. НЕ сработает при одном уровне TP
+    # (TakeProfitCalculator возвращает 1 уровень).
+    # Оставлено для будущего расширения и per-symbol профилей.
     trailing_after_tp: int = 2
     trailing_atr_multiplier: float = 1.0
     max_position_age_bars: int = 100
     commission_pct: float = 0.001
 
+    # Лимиты риска портфеля — синхронизированы с RiskLimits.
     daily_loss_limit_pct: float = 0.10
     daily_profit_target_pct: float = 0.50
     max_drawdown_pct: float = 0.50

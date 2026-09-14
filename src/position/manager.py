@@ -1,4 +1,16 @@
-"""Position Manager: управление позициями (с комиссией)."""
+"""Position Manager: управление позициями (с комиссией).
+
+Реализует:
+- частичные закрытия по TP,
+- перевод SL в безубыток после N-го TP (breakeven_after_tp),
+- трейлинг-стоп после M-го TP (trailing_after_tp),
+- закрытие по SL,
+- закрытие по timeout.
+
+Фактически TakeProfitCalculator возвращает 1 уровень TP,
+поэтому trailing_after_tp > 1 не сработает. Логика написана
+универсально — если позже добавят несколько TP, всё заработает.
+"""
 
 import logging
 import uuid
@@ -149,6 +161,7 @@ class PositionManager:
             if not position.is_open:
                 continue
 
+            # ---------- Timeout ----------
             age_bars = self._calculate_age_bars(position)
             if age_bars >= self._max_position_age_bars:
                 pnl = position.close_full(
@@ -169,6 +182,7 @@ class PositionManager:
                 ))
                 continue
 
+            # ---------- Stop Loss ----------
             if position.check_sl_hit(bar_high, bar_low):
                 pnl = position.close_full(
                     position.stop_loss, bar_time, CloseReason.STOP_LOSS,
@@ -187,6 +201,7 @@ class PositionManager:
                 ))
                 continue
 
+            # ---------- Take Profit (может быть несколько уровней) ----------
             hit_tps = position.check_tp_hit(bar_high, bar_low)
             for tp_num in hit_tps:
                 tp_price = position.take_profits[tp_num - 1]
@@ -208,6 +223,63 @@ class PositionManager:
                     },
                 ))
 
+                # ----- Breakeven after TP N -----
+                if (
+                    self._breakeven_after_tp > 0
+                    and tp_num >= self._breakeven_after_tp
+                ):
+                    old_sl = position.stop_loss
+                    position.move_stop_to_breakeven(
+                        commission_pct=self._commission_pct,
+                    )
+                    if position.stop_loss != old_sl:
+                        events.append(PositionEvent(
+                            type=PositionEventType.BREAKEVEN,
+                            position_id=position.id,
+                            symbol=position.symbol,
+                            timestamp=bar_time,
+                            price=position.stop_loss,
+                            size=position.current_size,
+                            details={
+                                "old_sl": old_sl,
+                                "new_sl": position.stop_loss,
+                                "after_tp": tp_num,
+                            },
+                        ))
+
+                # ----- Trailing after TP N -----
+                if (
+                    self._trailing_after_tp > 0
+                    and tp_num >= self._trailing_after_tp
+                    and atr is not None
+                    and atr > 0
+                ):
+                    old_sl = position.stop_loss
+                    trailing_distance = atr * self._trailing_atr_multiplier
+                    if position.direction == SignalDirection.BUY:
+                        new_sl = bar_close - trailing_distance
+                    else:
+                        new_sl = bar_close + trailing_distance
+
+                    position.update_trailing_stop(new_sl)
+                    if position.stop_loss != old_sl:
+                        events.append(PositionEvent(
+                            type=PositionEventType.STOP_MOVED,
+                            position_id=position.id,
+                            symbol=position.symbol,
+                            timestamp=bar_time,
+                            price=position.stop_loss,
+                            size=position.current_size,
+                            details={
+                                "old_sl": old_sl,
+                                "new_sl": position.stop_loss,
+                                "after_tp": tp_num,
+                                "atr": atr,
+                                "trailing_distance": trailing_distance,
+                            },
+                        ))
+
+                # ----- Полное закрытие по последнему TP -----
                 if not position.is_open:
                     closed.append(position)
                     events.append(PositionEvent(

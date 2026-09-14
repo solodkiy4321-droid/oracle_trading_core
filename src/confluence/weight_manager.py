@@ -5,6 +5,12 @@
 - elliott_wave
 - volatility
 - volume
+
+Веса ВСЕГДА нормализуются к сумме 1.0 после применения
+regime-множителей и фильтрации по активным анализаторам.
+Это гарантирует, что confluence_score из ScoringSystem
+находится в диапазоне [0, 1] и сравним с фиксированными
+порогами ConfluenceGate.
 """
 
 import logging
@@ -53,21 +59,52 @@ class WeightManager:
         self._validate_weights(self._base_weights)
 
     def _validate_weights(self, weights: Dict[str, float]) -> None:
+        """
+        Проверяет корректность базовых весов.
+
+        Если сумма весов отличается от 1.0 — НОРМАЛИЗУЕТ, а не падает.
+        Это защищает от опечаток в per-symbol профилях и от
+        накопления ошибок округления.
+        """
+        if not weights:
+            raise ValueError("Словарь базовых весов пуст")
+
         total = sum(weights.values())
-        if abs(total - 1.0) > 1e-6:
+        if total <= 0:
             raise ValueError(
-                f"Сумма базовых весов должна быть 1.0, получено {total:.4f}"
+                f"Сумма базовых весов должна быть > 0, получено {total:.4f}"
             )
+
+        if abs(total - 1.0) > 1e-6:
+            logger.warning(
+                "Сумма базовых весов = %.4f, нормализую к 1.0",
+                total,
+            )
+            for name in weights:
+                weights[name] /= total
 
     def get_base_weights(self) -> Dict[str, float]:
         return dict(self._base_weights)
 
     def get_weights(
-        self, regime: MarketRegime, analyzers: Optional[list] = None
+        self,
+        regime: MarketRegime,
+        analyzers: Optional[list] = None,
     ) -> Dict[str, float]:
+        """
+        Возвращает веса для режима regime, нормализованные к 1.0.
+
+        Args:
+            regime: рыночный режим (BULL / BEAR / CHOP)
+            analyzers: если задан — оставить только эти анализаторы
+                       (обычно — те, что вернули сигнал)
+
+        Returns:
+            Словарь {analyzer_name: normalized_weight}, сумма = 1.0
+        """
         multipliers = self.REGIME_MULTIPLIERS.get(regime, {})
 
-        adjusted = {}
+        adjusted: Dict[str, float] = {}
         for name, weight in self._base_weights.items():
             if analyzers is not None and name not in analyzers:
                 continue
@@ -78,12 +115,23 @@ class WeightManager:
             logger.warning("Нет анализаторов для расчёта весов")
             return {}
 
+        total = sum(adjusted.values())
+        if total <= 0:
+            logger.warning(
+                "Сумма скорректированных весов <= 0 (%.4f), возвращаю пустой словарь",
+                total,
+            )
+            return {}
+
+        normalized = {name: w / total for name, w in adjusted.items()}
+
         logger.debug(
-            "Веса для режима %s (без нормализации): %s",
+            "Веса для режима %s: %s (сумма=%.4f)",
             regime.value,
-            {k: f"{v:.3f}" for k, v in adjusted.items()},
+            {k: f"{v:.3f}" for k, v in normalized.items()},
+            sum(normalized.values()),
         )
-        return adjusted
+        return normalized
 
     def get_weight(self, analyzer_name: str, regime: MarketRegime) -> float:
         weights = self.get_weights(regime)

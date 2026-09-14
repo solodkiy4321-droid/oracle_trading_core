@@ -1,6 +1,12 @@
-"""Тесты Position Manager."""
+"""Тесты Position Manager.
 
-from datetime import datetime, timezone, timedelta
+Актуальная версия:
+- Position.calculate_pnl учитывает комиссию 0.1% на вход и выход.
+- PositionManager переводит SL в безубыток после TP1 (breakeven_after_tp).
+- PositionManager подтягивает trailing-стоп после TP (trailing_after_tp).
+"""
+
+from datetime import datetime, timezone
 
 import pytest
 
@@ -59,7 +65,7 @@ def make_trade_plan(
     )
 
 
-# ============ Position ============
+# ---------- Position ----------
 
 def test_position_initialization():
     """Позиция корректно инициализируется."""
@@ -140,17 +146,25 @@ def test_position_partial_close():
     assert pos.realized_pnl > 0
 
 
-def test_position_full_close():
-    """Полное закрытие."""
+def test_position_full_close_with_commission():
+    """
+    Полное закрытие.
+    PnL = (102 - 100) × 10 = 20 gross.
+    Комиссия: 100×10×0.001 + 102×10×0.001 = 1.0 + 1.02 = 2.02.
+    Net = 20 - 2.02 = 17.98.
+    """
     pos = Position(
         id="test1", symbol="BTC-USD", timeframe="1h",
         direction=SignalDirection.BUY,
         entry_price=100.0, entry_time=datetime.now(timezone.utc),
         initial_size=10.0, initial_stop_loss=98.0, stop_loss=98.0,
         take_profits=[102.0], tp_ratios=[1.0], tp_percentages=[1.0],
+        commission_pct=0.001,
     )
-    pnl = pos.close_full(102.0, datetime.now(timezone.utc), CloseReason.TAKE_PROFIT)
-    assert pnl == 20.0
+    pnl = pos.close_full(
+        102.0, datetime.now(timezone.utc), CloseReason.TAKE_PROFIT,
+    )
+    assert abs(pnl - 17.98) < 0.01
     assert pos.status == PositionStatus.CLOSED
     assert not pos.is_open
 
@@ -169,7 +183,7 @@ def test_position_breakeven():
     assert pos.stop_loss == pytest.approx(100.1, abs=0.01)
 
 
-# ============ PositionManager ============
+# ---------- PositionManager ----------
 
 def test_manager_open_position():
     """Position Manager открывает позицию."""
@@ -189,7 +203,6 @@ def test_manager_open_position_records_opened_bar_index():
     manager = PositionManager()
     plan = make_trade_plan()
 
-    # Продвигаем счётчик баров
     for _ in range(5):
         manager.on_bar(100.0, 100.0, 100.0, datetime.now(timezone.utc))
 
@@ -205,20 +218,15 @@ def test_manager_open_position_records_opened_bar_index():
 def test_manager_position_not_closed_immediately_by_timeout():
     """
     КРИТИЧЕСКИЙ ТЕСТ: позиция НЕ закрывается по timeout сразу после открытия.
-
-    Раньше был баг: _bar_counter уже был > 100, и позиция закрывалась
-    на первом же баре после открытия.
     """
     manager = PositionManager(max_position_age_bars=100)
     plan = make_trade_plan(direction=SignalDirection.BUY, entry=100.0, sl=98.0)
 
-    # Продвигаем счётчик баров на 500 (имитируем долгий бэктест)
     for _ in range(500):
         manager.on_bar(100.0, 100.0, 100.0, datetime.now(timezone.utc))
 
     assert manager._bar_counter == 500
 
-    # Открываем позицию
     pos = manager.open_position(
         symbol="BTC-USD", timeframe="1h",
         direction=SignalDirection.BUY, plan=plan,
@@ -226,14 +234,12 @@ def test_manager_position_not_closed_immediately_by_timeout():
     assert pos is not None
     assert manager.open_count == 1
 
-    # Обрабатываем 5 баров (цена не двигается — ни SL, ни TP не сработают)
     for _ in range(5):
-        update = manager.on_bar(
+        manager.on_bar(
             bar_high=100.5, bar_low=99.5, bar_close=100.0,
             bar_time=datetime.now(timezone.utc),
         )
 
-    # Позиция должна быть ВСЁ ЕЩЁ ОТКРЫТА
     assert manager.open_count == 1, (
         f"Позиция закрылась слишком рано! "
         f"opened_bar={pos.metadata.get('opened_bar_index')}, "
@@ -243,24 +249,19 @@ def test_manager_position_not_closed_immediately_by_timeout():
 
 
 def test_manager_position_closed_by_timeout_after_max_age():
-    """
-    Позиция закрывается по timeout только после max_position_age_bars.
-    """
+    """Позиция закрывается по timeout только после max_position_age_bars."""
     manager = PositionManager(max_position_age_bars=10)
     plan = make_trade_plan(direction=SignalDirection.BUY, entry=100.0, sl=98.0)
 
-    # Продвигаем счётчик
     for _ in range(500):
         manager.on_bar(100.0, 100.0, 100.0, datetime.now(timezone.utc))
 
-    # Открываем позицию
     pos = manager.open_position(
         symbol="BTC-USD", timeframe="1h",
         direction=SignalDirection.BUY, plan=plan,
     )
     assert pos is not None
 
-    # Обрабатываем 9 баров — позиция ещё открыта
     for _ in range(9):
         manager.on_bar(
             bar_high=100.5, bar_low=99.5, bar_close=100.0,
@@ -268,7 +269,6 @@ def test_manager_position_closed_by_timeout_after_max_age():
         )
     assert manager.open_count == 1
 
-    # 10-й бар — позиция закрывается по timeout
     manager.on_bar(
         bar_high=100.5, bar_low=99.5, bar_close=100.0,
         bar_time=datetime.now(timezone.utc),
@@ -317,7 +317,7 @@ def test_manager_tp_hit_partial_close():
         direction=SignalDirection.BUY, plan=plan,
     )
 
-    update = manager.on_bar(
+    manager.on_bar(
         bar_high=102.5, bar_low=99.5, bar_close=102.0,
         bar_time=datetime.now(timezone.utc),
     )
@@ -327,7 +327,12 @@ def test_manager_tp_hit_partial_close():
 
 
 def test_manager_breakeven_after_tp1():
-    """После TP1 стоп переводится в безубыток."""
+    """
+    После TP1 SL переводится в безубыток.
+
+    Проверка фикса Бага G: PositionManager.on_bar вызывает
+    position.move_stop_to_breakeven при tp_num >= breakeven_after_tp.
+    """
     manager = PositionManager(breakeven_after_tp=1)
     plan = make_trade_plan(direction=SignalDirection.BUY, entry=100.0, sl=98.0,
                           tps=[102.0, 104.0, 106.0])
@@ -336,12 +341,17 @@ def test_manager_breakeven_after_tp1():
         direction=SignalDirection.BUY, plan=plan,
     )
     old_sl = pos.stop_loss
+    assert old_sl == 98.0
 
     manager.on_bar(
         bar_high=102.5, bar_low=99.5, bar_close=102.0,
         bar_time=datetime.now(timezone.utc),
     )
-    assert pos.stop_loss > old_sl
+
+    assert pos.stop_loss > old_sl, (
+        f"После TP1 SL должен подняться: было {old_sl}, стало {pos.stop_loss}"
+    )
+    assert pos.stop_loss >= 100.0
 
 
 def test_manager_multiple_positions():

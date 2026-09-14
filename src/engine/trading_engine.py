@@ -1,6 +1,22 @@
-"""Trading Engine: 4 анализатора + CHOP + long_only + per-symbol 1d режим."""
+"""Trading Engine: 4 анализатора + CHOP + long_only + per-symbol 1d режим.
+
+Предвычисляет индикаторы один раз через IndicatorCache.
+Передаёт bar_index в анализаторы.
+
+Единый источник правды для режима — RegimeDetector.
+_detect_regime и _get_regime_1d — тонкие обёртки над ним.
+
+Порядок проверок в on_bar:
+1. snapshot / длина / position update / close positions
+2. PortfolioGuard (пауза, лимиты, drawdown) — жёсткое состояние портфеля
+3. CHOP-фильтр (состояние рынка)
+4. Сигналы + Confluence
+5. journal.log_decision — ВСЕГДА (даже если guard/CHOP отбил)
+6. Открытие позиции
+"""
 
 import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
@@ -12,6 +28,7 @@ from src.engine.config import EngineConfig
 from src.engine.symbol_profiles import SymbolProfile
 from src.models import SignalDirection
 from src.signal_intake.intake import SignalIntake
+from src.analyzers.indicator_cache import IndicatorCache
 from src.analyzers.trend import TrendAnalyzer
 from src.analyzers.elliott_wave import ElliottWaveAnalyzer
 from src.analyzers.volatility import VolatilityAnalyzer
@@ -53,6 +70,7 @@ class TradingEngine:
         self,
         config: Optional[EngineConfig] = None,
         df_1d: Optional[pd.DataFrame] = None,
+        full_data: Optional[pd.DataFrame] = None,
     ):
         self.config = config or EngineConfig()
         self.config.validate()
@@ -62,14 +80,28 @@ class TradingEngine:
         self._regime_1d_detector = RegimeDetector()
         self._blocked_by_1d = 0
 
+        t0 = time.time()
+        self._indicators = None
+        if full_data is not None and len(full_data) > 0:
+            try:
+                self._indicators = IndicatorCache(full_data)
+                init_time = time.time() - t0
+                logger.info(
+                    "IndicatorCache init: %d bars in %.3fs",
+                    self._indicators.n, init_time,
+                )
+            except Exception as e:
+                logger.exception("IndicatorCache init failed: %s", e)
+                self._indicators = None
+
         logger.info(
             "TradingEngine: %s %s, equity=%.2f, "
-            "filter_chop=%s, long_only=%s, regime_1d_mode=%s, df_1d=%s",
+            "filter_chop=%s, long_only=%s, regime_1d_mode=%s, cache=%s",
             self.config.symbol, self._timeframe,
             self.config.starting_equity,
             self.profile.filter_chop, self.profile.long_only,
             self.profile.regime_1d_filter_mode,
-            len(df_1d) if df_1d is not None else 0,
+            self._indicators is not None,
         )
         self._init_journal()
         self._init_portfolio()
@@ -87,6 +119,10 @@ class TradingEngine:
     @property
     def blocked_by_1d(self) -> int:
         return self._blocked_by_1d
+
+    @property
+    def has_indicator_cache(self) -> bool:
+        return self._indicators is not None
 
     def _init_journal(self):
         self.journal = Journal(self.config.journal_db_path)
@@ -160,11 +196,15 @@ class TradingEngine:
         self.regime_detector = RegimeDetector()
 
     def _get_regime_1d(self, current_time) -> MarketRegime:
+        """
+        Определяет режим на 1D-данных.
+
+        Использует тот же RegimeDetector, что и CHOP-фильтр на основном ТФ.
+        """
         mode = self.profile.regime_1d_filter_mode
 
         if mode == "none":
             return MarketRegime.CHOP
-
         if self._df_1d is None or current_time is None:
             return MarketRegime.CHOP
 
@@ -210,6 +250,77 @@ class TradingEngine:
 
         return MarketRegime.CHOP
 
+    def _detect_regime(self, data: pd.DataFrame, bar_index: int) -> MarketRegime:
+        """
+        Определяет режим на основном ТФ.
+
+        Если есть IndicatorCache — использует detect_from_cache
+        (без пересчёта ta.sma/ta.adx).
+        Иначе — fallback на RegimeDetector.detect(data).
+        """
+        if self._indicators is not None:
+            ind = self._indicators.slice(bar_index)
+            sma200 = ind.get("sma_200")
+            adx = ind.get("adx")
+            price = ind.get("current_price")
+
+            if sma200 is not None and adx is not None and price is not None:
+                return self.regime_detector.detect_from_cache(
+                    sma_val=sma200, adx_val=adx, current_price=price,
+                )
+
+        return self.regime_detector.detect(data)
+
+    def _calculate_atr(self, data: pd.DataFrame, bar_index: int) -> Optional[float]:
+        if self._indicators is not None:
+            ind = self._indicators.slice(bar_index)
+            atr = ind.get("atr_14")
+            if atr is not None and not pd.isna(atr):
+                return float(atr)
+
+        if len(data) < self.profile.atr_period + 1:
+            return None
+        atr = ta.atr(
+            data["high"], data["low"], data["close"],
+            length=self.profile.atr_period,
+        )
+        if atr is None or len(atr) == 0:
+            return None
+        return float(atr.iloc[-1])
+
+    def _log_hold_decision(
+        self,
+        symbol: str,
+        bar_time: Optional[datetime],
+        signals_count: int,
+        regime: MarketRegime,
+        reason: str,
+    ) -> None:
+        """
+        Логирует HOLD-решение, когда guard или CHOP отбили бар
+        до сбора сигналов. Нужно для диагностики: в журнале виден
+        каждый бар, где принималось решение.
+        """
+        try:
+            decision = ConfluenceDecision(
+                direction=SignalDirection.HOLD,
+                confluence_score=0.0,
+                regime=regime,
+                passed=False,
+                weights_used={},
+                reasons=[reason],
+                bull_score=0.0,
+                bear_score=0.0,
+            )
+            self.journal.log_decision(
+                decision=decision,
+                symbol=symbol,
+                timeframe=self._timeframe,
+                signals_count=signals_count,
+            )
+        except Exception as e:
+            logger.exception("Ошибка логирования HOLD-решения: %s", e)
+
     async def on_bar(self, data, bar_index, bar_time=None):
         self._bar_counter += 1
         result = BarResult(bar_index=bar_index, bar_time=bar_time)
@@ -226,7 +337,8 @@ class TradingEngine:
         bar_close = float(current_bar["close"])
         result.bar_close = bar_close
 
-        atr = self._calculate_atr(data)
+        atr = self._calculate_atr(data, bar_index)
+
         position_update = self.position_manager.on_bar(
             bar_high=bar_high, bar_low=bar_low, bar_close=bar_close,
             bar_time=bar_time or datetime.now(timezone.utc),
@@ -239,12 +351,7 @@ class TradingEngine:
             result.closed_positions.append(closed_pos)
             result.realized_pnl += closed_pos.realized_pnl
 
-        if self.profile.filter_chop:
-            regime = self.regime_detector.detect(data)
-            if regime == MarketRegime.CHOP:
-                result.was_blocked_by_chop = True
-                return result
-
+        # ---------- 1. Guard (жёсткое состояние портфеля) ----------
         guard_result = self.portfolio.can_open(
             symbol=self.config.symbol,
             risk_pct=self.profile.risk_per_trade_pct,
@@ -252,10 +359,37 @@ class TradingEngine:
         if not guard_result.allowed:
             result.was_blocked_by_guard = True
             result.guard_reason = guard_result.reason
+            self._log_hold_decision(
+                symbol=self.config.symbol,
+                bar_time=bar_time,
+                signals_count=0,
+                regime=MarketRegime.CHOP,
+                reason=f"guard: {guard_result.reason}",
+            )
             return result
 
+        # ---------- 2. CHOP-фильтр (состояние рынка) ----------
+        chop_regime = MarketRegime.CHOP
+        if self.profile.filter_chop:
+            chop_regime = self._detect_regime(data, bar_index)
+            if chop_regime == MarketRegime.CHOP:
+                result.was_blocked_by_chop = True
+                self._log_hold_decision(
+                    symbol=self.config.symbol,
+                    bar_time=bar_time,
+                    signals_count=0,
+                    regime=chop_regime,
+                    reason="chop: рынок в CHOP",
+                )
+                return result
+
+        # ---------- 3. Сигналы + Confluence ----------
         batch = await self.intake.process(
-            data, symbol=self.config.symbol, timeframe=self._timeframe,
+            data,
+            symbol=self.config.symbol,
+            timeframe=self._timeframe,
+            indicators=self._indicators,
+            bar_index=bar_index,
         )
         decision = self.confluence.decide(batch.signals, data)
         result.decision = decision
@@ -265,6 +399,7 @@ class TradingEngine:
             timeframe=self._timeframe, signals_count=batch.count,
         )
 
+        # ---------- 4. Открытие позиции ----------
         if decision.passed and decision.direction != SignalDirection.HOLD:
             if self.profile.long_only and decision.direction == SignalDirection.SELL:
                 result.was_blocked_by_long_only = True
@@ -331,17 +466,6 @@ class TradingEngine:
         self.portfolio.register_position_closed(position)
         self.journal.log_position_closed(position)
 
-    def _calculate_atr(self, data):
-        if len(data) < self.profile.atr_period + 1:
-            return None
-        atr = ta.atr(
-            data["high"], data["low"], data["close"],
-            length=self.profile.atr_period,
-        )
-        if atr is None or len(atr) == 0:
-            return None
-        return float(atr.iloc[-1])
-
     def start_new_day(self):
         self.portfolio.start_new_day()
         self.journal.log_portfolio_snapshot(self.portfolio.state)
@@ -384,6 +508,7 @@ class TradingEngine:
                 "notes": self.profile.notes,
             },
             "blocked_by_1d": self._blocked_by_1d,
+            "has_indicator_cache": self._indicators is not None,
         }
 
     def close(self):

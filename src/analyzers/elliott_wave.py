@@ -1,34 +1,14 @@
 """ElliottWaveAnalyzer — волны Эллиотта.
 
 Категория: ПАТТЕРНЫ.
-Вопрос: «Сформировалась ли импульсная (5 волн) или коррекционная (3 волны)
-структура и валидна ли она по правилам Эллиотта-Фроста-Пректера?»
 
-Правила импульса (6 точек: 0-1-2-3-4-5):
-1. w2 не откатывает более 100% w1: w2/w1 <= 1.0.
-2. w3 не самая короткая среди w1, w3, w5.
-3. w4 не пересекает территорию w1.
-4. w3 > w1 (волна 3 больше волны 1).
-5. w2/w1 in [0.2, 0.9] (коррекция, не импульс).
-6. w3/w1 in [1.0, 3.5].
-7. w4/w3 in [0.15, 0.7].
-8. w5/w3 in [0.3, 2.5].
-9. Направление w3 совпадает с w1, w5 с w3.
-
-Правила коррекции (4 точки A-B-C-D):
-1. B не превышает начало A: b/a < 1.0.
-2. b/a in [0.2, 0.95] (иначе это импульс).
-
-Фильтры:
-- min_pattern_confidence: порог для паттерна (по умолчанию 0.55).
-- min_confidence: итоговый порог сигнала (по умолчанию 0.50).
-
-TrendFilter штрафует сигналы против тренда.
+Использует IndicatorCache если передан — берёт готовые swing_points
+И готовый sma_200 для trend-фильтра (без пересчёта ta.sma).
 """
 
 import logging
 from dataclasses import dataclass
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Any
 
 import numpy as np
 import pandas as pd
@@ -94,6 +74,14 @@ class ElliottWaveDetector:
         points.sort(key=lambda p: p.index)
         return points
 
+    def build_swing_points_from_cache(
+        self, swing_points_tuples: List[tuple],
+    ) -> List[SwingPoint]:
+        return [
+            SwingPoint(index=int(idx), price=float(price), kind=kind)
+            for idx, price, kind in swing_points_tuples
+        ]
+
     def _alternates(self, *points: SwingPoint) -> bool:
         for i in range(len(points) - 1):
             if points[i].kind == points[i + 1].kind:
@@ -113,7 +101,6 @@ class ElliottWaveDetector:
             return False, {}
 
         w0, w1, w2, w3, w4, w5 = wave
-
         is_bullish = w5.price > w0.price
 
         if not self._alternates(w0, w1, w2, w3, w4, w5):
@@ -173,7 +160,6 @@ class ElliottWaveDetector:
             "w4_w3": 0.382,
             "w5_w3": 0.618,
         }
-
         scores = []
         for key, ideal_val in ideal.items():
             actual = ratios.get(key, 0.0)
@@ -181,34 +167,24 @@ class ElliottWaveDetector:
                 diff = abs(actual - ideal_val) / ideal_val
                 score = max(0.0, 1.0 - diff)
                 scores.append(score)
-
         if not scores:
             return 0.0
-
         return float(np.mean(scores))
 
     def _check_correction_rules(self, wave: List[SwingPoint]) -> Tuple[bool, dict]:
         if len(wave) != 4:
             return False, {}
-
         wa, wb, wc, _ = wave
-
         if not self._alternates(wa, wb, wc):
             return False, {}
-
         len_a = abs(wb.price - wa.price)
         len_b = abs(wc.price - wb.price)
-
         if len_a < 1e-9:
             return False, {}
-
         b_a = len_b / len_a
         if not self._in_range(b_a, self.B_A_RANGE):
             return False, {}
-
-        ratios = {"b_a": b_a}
-
-        return True, ratios
+        return True, {"b_a": b_a}
 
     def _calc_correction_confidence(self, ratios: dict) -> float:
         b_a = ratios.get("b_a", 0.0)
@@ -229,53 +205,37 @@ class ElliottWaveDetector:
         for i in range(len(points) - 5):
             wave = points[i:i + 6]
             age = total_bars - 1 - wave[-1].index
-
             if age < self.min_pattern_age or age > self.max_pattern_age:
                 continue
-
             valid, ratios = self._check_impulse_rules(wave)
             if not valid:
                 continue
-
             confidence = self._calc_impulse_confidence(ratios)
             if confidence < min_pattern_confidence:
                 continue
-
             is_bullish = wave[-1].price > wave[0].price
-
             patterns.append(WavePattern(
                 pattern_type="impulse",
                 direction="bullish" if is_bullish else "bearish",
-                points=wave,
-                confidence=confidence,
-                ratios=ratios,
-                age_bars=age,
+                points=wave, confidence=confidence, ratios=ratios, age_bars=age,
             ))
 
         for i in range(len(points) - 3):
             wave = points[i:i + 4]
             age = total_bars - 1 - wave[-1].index
-
             if age < self.min_pattern_age or age > self.max_pattern_age:
                 continue
-
             valid, ratios = self._check_correction_rules(wave)
             if not valid:
                 continue
-
             confidence = self._calc_correction_confidence(ratios)
             if confidence < min_pattern_confidence:
                 continue
-
             is_bullish = wave[-1].price > wave[0].price
-
             patterns.append(WavePattern(
                 pattern_type="correction",
                 direction="bullish" if is_bullish else "bearish",
-                points=wave,
-                confidence=confidence,
-                ratios=ratios,
-                age_bars=age,
+                points=wave, confidence=confidence, ratios=ratios, age_bars=age,
             ))
 
         patterns.sort(key=lambda p: p.confidence, reverse=True)
@@ -311,18 +271,36 @@ class ElliottWaveAnalyzer(BaseAnalyzer):
         self._trend_filter = TrendFilter() if use_trend_filter else None
         self._trend_penalty = trend_penalty
 
-    async def analyze(self, data: pd.DataFrame) -> Optional[AnalyzerSignal]:
+    async def analyze(
+        self,
+        data: pd.DataFrame,
+        indicators: Optional[Any] = None,
+        bar_index: Optional[int] = None,
+    ) -> Optional[AnalyzerSignal]:
         if data is None or len(data) < 50:
             return None
 
         try:
-            points = self._detector.find_swing_points(data)
+            ind_slice = None
+            if indicators is not None:
+                i = bar_index if bar_index is not None else indicators.n - 1
+                if i < 50 or i >= indicators.n:
+                    return None
+
+                swing_tuples = indicators.get_swing_points(end_idx=i)
+                points = self._detector.build_swing_points_from_cache(swing_tuples)
+                total_bars = i + 1
+                ind_slice = indicators.slice(i)
+            else:
+                points = self._detector.find_swing_points(data)
+                total_bars = len(data)
+
             if len(points) < 6:
                 return None
 
             patterns = self._detector.detect_patterns(
                 points,
-                total_bars=len(data),
+                total_bars=total_bars,
                 min_pattern_confidence=self._min_pattern_confidence,
             )
 
@@ -343,7 +321,16 @@ class ElliottWaveAnalyzer(BaseAnalyzer):
 
             trend_info = "no_filter"
             if self._use_trend_filter and self._trend_filter is not None:
-                trend = self._trend_filter.detect(data)
+                if ind_slice is not None:
+                    # Быстрый путь: SMA200 уже посчитана в IndicatorCache
+                    trend = self._trend_filter.detect_from_cache(
+                        sma_val=ind_slice.get("sma_200"),
+                        current_price=ind_slice.get("current_price"),
+                    )
+                else:
+                    # Fallback: пересчитываем SMA200 (медленный путь)
+                    trend = self._trend_filter.detect(data)
+
                 mult = self._trend_filter.apply_penalty(
                     direction, trend, self._trend_penalty,
                 )

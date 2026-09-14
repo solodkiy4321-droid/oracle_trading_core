@@ -4,6 +4,11 @@
 Не регистрируется в SignalIntake, не даёт сигналов.
 Используется в HarmonicAnalyzer и ElliottWaveAnalyzer для штрафа
 сигналов против тренда.
+
+Поддерживает два режима:
+- detect(data): пересчитывает SMA200 через ta.sma (старый путь).
+- detect_from_cache(sma_val, current_price): использует уже посчитанные
+  значения из IndicatorCache (быстрый путь, без ta.sma).
 """
 
 import logging
@@ -30,6 +35,11 @@ class TrendFilter:
         self.neutral_band_pct = neutral_band_pct
 
     def detect(self, data: pd.DataFrame) -> TrendDirection:
+        """
+        Определяет тренд по свежему расчёту SMA.
+
+        Используется, когда IndicatorCache недоступен.
+        """
         if data is None or len(data) < self.sma_period:
             return TrendDirection.NEUTRAL
 
@@ -40,6 +50,28 @@ class TrendFilter:
         sma_val = float(sma.iloc[-1])
         current_price = float(data["close"].iloc[-1])
 
+        return self._classify(sma_val, current_price)
+
+    def detect_from_cache(
+        self,
+        sma_val: Optional[float],
+        current_price: Optional[float],
+    ) -> TrendDirection:
+        """
+        Определяет тренд по значениям, уже посчитанным в IndicatorCache.
+
+        Не вызывает ta.sma — это ключевое отличие от detect().
+        """
+        if sma_val is None or current_price is None:
+            return TrendDirection.NEUTRAL
+        return self._classify(sma_val, current_price)
+
+    def _classify(
+        self,
+        sma_val: float,
+        current_price: float,
+    ) -> TrendDirection:
+        """Общая логика классификации по SMA и текущей цене."""
         if sma_val <= 0:
             return TrendDirection.NEUTRAL
 

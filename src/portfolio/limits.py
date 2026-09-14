@@ -1,4 +1,15 @@
-"""Настройки лимитов риска портфеля."""
+"""Настройки лимитов риска портфеля.
+
+ВНИМАНИЕ: значения дефолтов синхронизированы с EngineConfig
+(см. src/engine/config.py). Это сделано, чтобы:
+- при прямом создании RiskLimits() использовались те же настройки,
+  что и в TradingEngine;
+- не было двух источников правды с разными значениями.
+
+TradingEngine._init_portfolio всё равно передаёт значения из
+EngineConfig явно — это защита на будущее, если EngineConfig
+будет меняться без синхронизации RiskLimits.
+"""
 
 from dataclasses import dataclass, field
 from typing import List, Dict
@@ -9,18 +20,15 @@ class RiskLimits:
     """
     Настройки лимитов риска.
 
-    ВАЖНО: пауза ОСЛАБЛЕНА для сбора статистики:
-    - pause_after_consecutive_losses = 5 (было 3)
-    - pause_duration_hours = 12 (было 24)
-
-    Это позволяет собирать больше сделок для анализа.
+    Дефолты синхронизированы с EngineConfig.
     """
+
     # Дневные лимиты
-    daily_loss_limit_pct: float = 0.03
-    daily_profit_target_pct: float = 0.06
+    daily_loss_limit_pct: float = 0.10
+    daily_profit_target_pct: float = 0.50
 
     # Общие лимиты
-    max_drawdown_pct: float = 0.15
+    max_drawdown_pct: float = 0.50
     max_open_positions: int = 5
     max_positions_per_symbol: int = 1
 
@@ -41,9 +49,9 @@ class RiskLimits:
     # Лимиты на инструмент
     max_risk_per_symbol_pct: float = 0.02
 
-    # Паузы — ОСЛАБЛЕНЫ для сбора статистики
-    pause_after_consecutive_losses: int = 5    # было 3
-    pause_duration_hours: int = 12             # было 24
+    # Паузы — синхронизированы с EngineConfig
+    pause_after_consecutive_losses: int = 10
+    pause_duration_hours: int = 1
 
     def validate(self) -> None:
         if not 0 < self.daily_loss_limit_pct <= 0.2:

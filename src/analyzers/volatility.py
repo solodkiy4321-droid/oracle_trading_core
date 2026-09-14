@@ -1,30 +1,12 @@
 """VolatilityAnalyzer — волатильность через ATR и squeeze/expansion.
 
 Категория: ВОЛАТИЛЬНОСТЬ.
-Вопрос: «Насколько широко ходит цена и не сжалась ли она перед пробоем?»
 
-Принципы:
-- ATR — текущий размах.
-- Сравниваем ATR с его скользящей средней (SMA по ATR).
-- Squeeze: ATR < 0.7 × среднего ATR → сжатие, скоро пробой.
-- Expansion: ATR > 1.5 × среднего ATR → расширение, тренд или паника.
-
-Сигнал:
-- Squeeze сам по себе не даёт направления. Нужен пробой границы.
-- Определяем направление по последнему close относительно диапазона
-  за N баров: close > верхней границы → BUY, close < нижней → SELL.
-- Expansion: если ATR растёт и цена идёт в одну сторону — подтверждение.
-
-Не дублирует:
-- trend (EMA200 + ADX) — тот про направление и силу
-- momentum (RSI) — тот про перегрев в боковике
-- volume (OBV) — тот про подтверждение объёмом
-
-Confidence — сила сжатия/расширения + чёткость пробоя.
+Использует IndicatorCache если передан — иначе считает сам.
 """
 
 import logging
-from typing import Optional
+from typing import Optional, Any
 
 import numpy as np
 import pandas as pd
@@ -80,7 +62,7 @@ class VolatilityAnalyzer(BaseAnalyzer):
         return (ratio - self._expansion_ratio) / span
 
     def _breakout_direction(
-        self, data: pd.DataFrame, current_price: float
+        self, data: pd.DataFrame, current_price: float,
     ) -> Optional[tuple]:
         lookback = self._breakout_lookback
         if len(data) < lookback + 1:
@@ -102,90 +84,121 @@ class VolatilityAnalyzer(BaseAnalyzer):
 
         return None
 
-    async def analyze(self, data: pd.DataFrame) -> Optional[AnalyzerSignal]:
-        if data is None or len(data) < self._atr_ma_period + self._atr_period + 5:
+    def _compute_fallback(self, data: pd.DataFrame) -> Optional[tuple]:
+        high = data["high"]
+        low = data["low"]
+        close = data["close"]
+
+        atr = ta.atr(high, low, close, length=self._atr_period)
+        if atr is None or len(atr) < self._atr_ma_period:
             return None
 
-        try:
-            high = data["high"]
-            low = data["low"]
-            close = data["close"]
-
-            atr = ta.atr(high, low, close, length=self._atr_period)
-            if atr is None or len(atr) < self._atr_ma_period:
-                return None
-
-            atr_series = atr.dropna()
-            if len(atr_series) < self._atr_ma_period:
-                return None
-
-            atr_val = float(atr_series.iloc[-1])
-            atr_ma = float(atr_series.iloc[-self._atr_ma_period:].mean())
-
-            if atr_ma <= 0 or atr_val <= 0:
-                return None
-
-            ratio = atr_val / atr_ma
-            current_price = float(close.iloc[-1])
-
-            squeeze = self._squeeze_score(ratio)
-            expansion = self._expansion_score(ratio)
-
-            direction: Optional[SignalDirection] = None
-            zone = ""
-            base_conf = 0.0
-
-            if squeeze > 0:
-                breakout = self._breakout_direction(data, current_price)
-                if breakout is None:
-                    return None
-                bdir, bstrength, bhi, blo = breakout
-                direction = bdir
-                zone = "squeeze_breakout"
-                base_conf = squeeze * (1.0 - 0.5 * min(bstrength * 50.0, 1.0) * -1.0)
-                base_conf = squeeze * min(1.0, 0.5 + bstrength * 50.0)
-            elif expansion > 0:
-                direction = SignalDirection.BUY if close.iloc[-1] >= close.iloc[-2] else SignalDirection.SELL
-                zone = "expansion"
-                base_conf = expansion * 0.5
-            else:
-                return None
-
-            if direction is None:
-                return None
-
-            confidence = 0.3 + 0.5 * base_conf
-            confidence = max(self._min_confidence, min(confidence, self._max_confidence))
-
-            if confidence < self._min_confidence:
-                return None
-
-            reason = (
-                f"VOLATILITY {zone}: "
-                f"ATR={atr_val:.4f}, "
-                f"ATR_MA={atr_ma:.4f}, "
-                f"ratio={ratio:.2f}, "
-                f"conf={confidence:.2f}"
-            )
-
-            return AnalyzerSignal(
-                direction=direction,
-                confidence=confidence,
-                reason=reason,
-                metadata={
-                    "atr": atr_val,
-                    "atr_ma": atr_ma,
-                    "atr_ratio": ratio,
-                    "squeeze_score": squeeze,
-                    "expansion_score": expansion,
-                    "zone": zone,
-                    "atr_period": self._atr_period,
-                    "atr_ma_period": self._atr_ma_period,
-                    "base_confidence": base_conf,
-                },
-                source=self.name,
-            )
-
-        except Exception as e:
-            logger.exception("VolatilityAnalyzer error: %s", e)
+        atr_series = atr.dropna()
+        if len(atr_series) < self._atr_ma_period:
             return None
+
+        atr_val = float(atr_series.iloc[-1])
+        atr_ma = float(atr_series.iloc[-self._atr_ma_period:].mean())
+        return atr_val, atr_ma
+
+    async def analyze(
+        self,
+        data: pd.DataFrame,
+        indicators: Optional[Any] = None,
+    ) -> Optional[AnalyzerSignal]:
+        min_bars = self._atr_ma_period + self._atr_period + 5
+
+        if indicators is not None:
+            if indicators.n < min_bars:
+                return None
+
+            i = indicators.n - 1
+            ind = indicators.slice(i)
+            atr_val = ind.get("atr_14")
+            atr_ma = ind.get("atr_14_ma_50")
+
+            if atr_val is None or atr_ma is None:
+                return None
+            if np.isnan(atr_val) or np.isnan(atr_ma):
+                return None
+
+            current_price = ind.get("current_price")
+            if current_price is None:
+                return None
+        else:
+            if data is None or len(data) < min_bars:
+                return None
+            fallback = self._compute_fallback(data)
+            if fallback is None:
+                return None
+            atr_val, atr_ma = fallback
+            current_price = float(data["close"].iloc[-1])
+
+        if atr_ma <= 0 or atr_val <= 0 or current_price <= 0:
+            return None
+
+        ratio = atr_val / atr_ma
+        squeeze = self._squeeze_score(ratio)
+        expansion = self._expansion_score(ratio)
+
+        direction: Optional[SignalDirection] = None
+        zone = ""
+        base_conf = 0.0
+
+        if squeeze > 0:
+            breakout = self._breakout_direction(data, current_price)
+            if breakout is None:
+                return None
+            bdir, bstrength, bhi, blo = breakout
+            direction = bdir
+            zone = "squeeze_breakout"
+            base_conf = squeeze * min(1.0, 0.5 + bstrength * 50.0)
+        elif expansion > 0:
+            closes = data["close"]
+            direction = (
+                SignalDirection.BUY
+                if closes.iloc[-1] >= closes.iloc[-2]
+                else SignalDirection.SELL
+            )
+            zone = "expansion"
+            base_conf = expansion * 0.5
+        else:
+            return None
+
+        if direction is None:
+            return None
+
+        confidence = 0.3 + 0.5 * base_conf
+        confidence = max(
+            self._min_confidence,
+            min(confidence, self._max_confidence),
+        )
+
+        if confidence < self._min_confidence:
+            return None
+
+        reason = (
+            f"VOLATILITY {zone}: "
+            f"ATR={atr_val:.4f}, "
+            f"ATR_MA={atr_ma:.4f}, "
+            f"ratio={ratio:.2f}, "
+            f"conf={confidence:.2f}"
+        )
+
+        return AnalyzerSignal(
+            direction=direction,
+            confidence=confidence,
+            reason=reason,
+            metadata={
+                "atr": atr_val,
+                "atr_ma": atr_ma,
+                "atr_ratio": ratio,
+                "squeeze_score": squeeze,
+                "expansion_score": expansion,
+                "zone": zone,
+                "atr_period": self._atr_period,
+                "atr_ma_period": self._atr_ma_period,
+                "base_confidence": base_conf,
+            },
+            source=self.name,
+        )
